@@ -1,6 +1,6 @@
 // src/main.ts
 import "dotenv/config";
-import { GeminiAdapter } from "./domain/llm/adapters/GeminiAdapter.js";
+import { ProviderFactory, type ProviderName } from "./domain/llm/ProviderFactory.js";
 
 async function run() {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -8,10 +8,14 @@ async function run() {
     throw new Error(".env dosyasında GEMINI_API_KEY bulunamadı.");
   }
 
-  const provider = new GeminiAdapter(apiKey);
+  // Hangi provider? Tek bir yerden, isimle seçiyoruz.
+  const selected: ProviderName = "gemini";
+
+  const factory = new ProviderFactory(apiKey);
+  const provider = factory.create(selected);
 
   const result = await provider.complete({
-    messages: [{ role: "user", content: "Adapter pattern'i bir cümlede açıkla." }],
+    messages: [{ role: "user", content: "Factory pattern'i bir cümlede açıkla." }],
   });
 
   console.log("Provider:", provider.name);
