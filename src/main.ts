@@ -1,7 +1,7 @@
 // src/main.ts
 import "dotenv/config";
 import { ModelStrategy } from "./domain/llm/ModelStrategy.js";
-import { RequestRouter } from "./domain/llm/RequestRouter.js";
+import { SimpleAgent } from "./domain/llm/SimpleAgent.js";
 
 async function run() {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -11,21 +11,15 @@ async function run() {
 
   const strategy = new ModelStrategy(apiKey);
   const provider = strategy.select("cheap");
-  const router = new RequestRouter(provider);
+  const agent = new SimpleAgent(provider);
 
-  // İki farklı mesaj: biri şikayet, biri soru
-  const messages = [
-    "Hasar başvurumda 3 haftadır dönüş alamıyorum, aracım serviste bekliyor, çok mağdurum!",
-    "Kasko poliçemi online olarak nasıl yenileyebilirim?",
-  ];
+  const goal = "12345 numaralı poliçemin bitiş tarihi ne zaman?";
+  console.log("=== HEDEF ===");
+  console.log(goal, "\n");
 
-  for (const message of messages) {
-    console.log("\n=== GELEN MESAJ ===");
-    console.log(message);
-    const result = await router.route(message);
-    console.log(`\n[Yönlendirildi: ${result.type}]`);
-    console.log(result.output);
-  }
+  const answer = await agent.run(goal);
+  console.log("\n=== FİNAL CEVAP ===");
+  console.log(answer);
 }
 
 run();
