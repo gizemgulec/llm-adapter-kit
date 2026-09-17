@@ -1,21 +1,21 @@
 // src/main.ts
 import "dotenv/config";
 import { ModelStrategy } from "./domain/llm/ModelStrategy.js";
-import { SimpleAgent } from "./domain/llm/SimpleAgent.js";
+import { MultiTurnAgent } from "./domain/llm/MultiTurnAgent.js";
 
 async function run() {
   const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    throw new Error(".env dosyasında GEMINI_API_KEY bulunamadı.");
-  }
+  if (!apiKey) throw new Error(".env dosyasında GEMINI_API_KEY bulunamadı.");
 
   const strategy = new ModelStrategy(apiKey);
   const provider = strategy.select("cheap");
-  const agent = new SimpleAgent(provider);
+  const agent = new MultiTurnAgent(provider);
 
-  const goal = "12345 numaralı poliçemin bitiş tarihi ne zaman?";
+  // Bu hedef İKİ araç gerektiriyor: hem poliçe bilgisi hem iletişim
+  const goal =
+    "12345 numaralı poliçenin hem bitiş tarihini hem de sahibinin iletişim bilgisini öğren.";
   console.log("=== HEDEF ===");
-  console.log(goal, "\n");
+  console.log(goal);
 
   const answer = await agent.run(goal);
   console.log("\n=== FİNAL CEVAP ===");

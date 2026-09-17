@@ -14,3 +14,17 @@ export function getPolicyInfo(policyNumber: string): string {
   }
   return `${policy.type} poliçesi, bitiş tarihi: ${policy.endDate}`;
 }
+
+// İkinci araç: poliçe sahibinin iletişim bilgisini getirir
+const fakeContactDB: Record<string, string> = {
+  "12345": "Ahmet Yılmaz - 0532 111 22 33",
+  "67890": "Ayşe Demir - 0533 444 55 66",
+};
+
+export function getContactInfo(policyNumber: string): string {
+  const contact = fakeContactDB[policyNumber];
+  if (!contact) {
+    return `${policyNumber} numaralı poliçe için iletişim bilgisi bulunamadı.`;
+  }
+  return contact;
+}
