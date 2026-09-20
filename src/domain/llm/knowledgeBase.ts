@@ -26,22 +26,21 @@ export const knowledgeBase = [
   },
 ];
 
-// RETRIEVAL: Soruya en uygun belgeyi bul.
-// Basit yöntem: sorudaki kelimelerle belge anahtar kelimelerini eşleştir.
-// (Gerçek RAG'de bu kısım "vektör arama" ile daha akıllı yapılır.)
-export function retrieve(question: string): string | null {
+// RETRIEVAL: Soruya en uygun EN İYİ N belgeyi bul (tek değil, birden çok).
+// Her belgeyi eşleşme sayısına göre puanla, en yüksek puanlıları döndür.
+export function retrieve(question: string, topN = 2): string[] {
   const lowerQuestion = question.toLowerCase();
 
-  // Her belge için kaç anahtar kelime eşleşiyor say
-  let bestMatch = { doc: null as (typeof knowledgeBase)[0] | null, score: 0 };
+  // Her belgeyi puanla
+  const scored = knowledgeBase.map((doc) => ({
+    content: doc.content,
+    score: doc.keywords.filter((kw) => lowerQuestion.includes(kw)).length,
+  }));
 
-  for (const doc of knowledgeBase) {
-    const score = doc.keywords.filter((kw) => lowerQuestion.includes(kw)).length;
-    if (score > bestMatch.score) {
-      bestMatch = { doc, score };
-    }
-  }
-
-  // Hiç eşleşme yoksa null dön
-  return bestMatch.doc ? bestMatch.doc.content : null;
+  // Sadece en az 1 eşleşme olanları al, puana göre sırala, ilk N'i döndür
+  return scored
+    .filter((item) => item.score > 0)      // hiç eşleşmeyeni ele
+    .sort((a, b) => b.score - a.score)     // yüksek puan önce
+    .slice(0, topN)                        // en iyi N tanesi
+    .map((item) => item.content);          // sadece metinleri dön
 }

@@ -11,11 +11,10 @@ async function run() {
   const provider = strategy.select("cheap");
   const rag = new RagPipeline(provider);
 
-  // 3 farklı soru: ikisi belgede var, biri yok
   const questions = [
-    "Kasko poliçesinde cam kırılması karşılanıyor mu?",     // belgede var
-    "Hasar başvurusunu kaç gün içinde yapmalıyım?",          // belgede var
-    "Evcil hayvan sigortası yapıyor musunuz?",               // belgede YOK
+    "Kasko poliçesinde cam kırılması karşılanıyor mu?",              // 1 belge
+    "Kasko hasar başvurusunu kaç gün içinde ve nasıl yapmalıyım?",   // 2 belgeye değebilir (cam + hasar süresi)
+    "Evcil hayvan sigortası yapıyor musunuz?",                       // 0 belge
   ];
 
   for (const q of questions) {

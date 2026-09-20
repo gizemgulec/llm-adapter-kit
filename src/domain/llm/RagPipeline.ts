@@ -6,28 +6,30 @@ export class RagPipeline {
   constructor(private readonly provider: LLMProvider) {}
 
   async ask(question: string): Promise<string> {
-    // --- 1. RETRIEVAL: İlgili belgeyi bul ---
-    const context = retrieve(question);
-    console.log("[Bulunan belge]:", context ?? "(eşleşen belge yok)");
+    // --- 1. RETRIEVAL: En alakalı belgeleri bul (artık birden çok) ---
+    const docs = retrieve(question);
+    console.log(`[Bulunan belge sayısı]: ${docs.length}`);
+    docs.forEach((d, i) => console.log(`  Belge ${i + 1}: ${d.slice(0, 50)}...`));
 
-    // --- 2. AUGMENTED: Belgeyi soruyla birlikte AI'a ver ---
+    // --- 2. AUGMENTED: Belgeleri soruyla birlikte AI'a ver ---
     let prompt: string;
-    if (context) {
+    if (docs.length > 0) {
+      // Birden çok belgeyi numaralayıp tek metinde birleştir
+      const context = docs.map((d, i) => `[Belge ${i + 1}] ${d}`).join("\n\n");
       prompt =
-        `Aşağıdaki bilgiye dayanarak soruyu yanıtla. ` +
-        `Eğer bilgi soruyu yanıtlamaya yetmiyorsa, "Bu konuda bilgim yok" de.\n\n` +
-        `BİLGİ:\n${context}\n\n` +
+        `Aşağıdaki bilgilere dayanarak soruyu yanıtla. ` +
+        `Eğer bilgiler soruyu yanıtlamaya yetmiyorsa, "Bu konuda bilgim yok" de.\n\n` +
+        `BİLGİLER:\n${context}\n\n` +
         `SORU: ${question}`;
     } else {
-      // Belge bulunamadıysa, AI'ı uydurmaması için uyar
       prompt =
         `SORU: ${question}\n\n` +
         `Bu konuda elimde belge yok. Emin değilsen tahmin etme, "Bu konuda bilgim yok" de.`;
     }
 
-    // --- 3. GENERATION: AI belgeye bakarak cevap üretsin ---
+    // --- 3. GENERATION: AI belgelere bakarak cevap üretsin ---
     const result = await this.provider.complete({
-      system: "Sen bir Aksigorta destek asistanısın. Sadece verilen bilgiye dayan, uydurma.",
+      system: "Sen bir Aksigorta destek asistanısın. Sadece verilen bilgilere dayan, uydurma.",
       messages: [{ role: "user", content: prompt }],
     });
 
