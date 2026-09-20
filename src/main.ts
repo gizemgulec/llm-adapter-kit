@@ -1,7 +1,7 @@
 // src/main.ts
 import "dotenv/config";
 import { ModelStrategy } from "./domain/llm/ModelStrategy.js";
-import { MultiTurnAgent } from "./domain/llm/MultiTurnAgent.js";
+import { RagPipeline } from "./domain/llm/RagPipeline.js";
 
 async function run() {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -9,17 +9,21 @@ async function run() {
 
   const strategy = new ModelStrategy(apiKey);
   const provider = strategy.select("cheap");
-  const agent = new MultiTurnAgent(provider);
+  const rag = new RagPipeline(provider);
 
-  // Bu hedef İKİ araç gerektiriyor: hem poliçe bilgisi hem iletişim
-  const goal =
-    "12345 numaralı poliçenin hem bitiş tarihini hem de sahibinin iletişim bilgisini öğren.";
-  console.log("=== HEDEF ===");
-  console.log(goal);
+  // 3 farklı soru: ikisi belgede var, biri yok
+  const questions = [
+    "Kasko poliçesinde cam kırılması karşılanıyor mu?",     // belgede var
+    "Hasar başvurusunu kaç gün içinde yapmalıyım?",          // belgede var
+    "Evcil hayvan sigortası yapıyor musunuz?",               // belgede YOK
+  ];
 
-  const answer = await agent.run(goal);
-  console.log("\n=== FİNAL CEVAP ===");
-  console.log(answer);
+  for (const q of questions) {
+    console.log("\n=== SORU ===");
+    console.log(q);
+    const answer = await rag.ask(q);
+    console.log("[Cevap]:", answer);
+  }
 }
 
 run();
