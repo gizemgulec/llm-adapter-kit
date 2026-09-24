@@ -1,6 +1,6 @@
 // src/domain/llm/knowledgeBase.ts
 
-// Sahte bir bilgi deposu — gerçekte bunlar Aksigorta'nın poliçe metinleri,
+// Sahte bir bilgi deposu — gerçekte bunlar Sigorta'nın poliçe metinleri,
 // dokümanları vs. olurdu. Şimdilik birkaç kısa "belge" ile başlıyoruz.
 export const knowledgeBase = [
   {
