@@ -29,7 +29,7 @@ export class RagPipeline {
 
     // --- 3. GENERATION: AI belgelere bakarak cevap üretsin ---
     const result = await this.provider.complete({
-      system: "Sen bir Aksigorta destek asistanısın. Sadece verilen bilgilere dayan, uydurma.",
+      system: "Sen bir Sigorta destek asistanısın. Sadece verilen bilgilere dayan, uydurma.",
       messages: [{ role: "user", content: prompt }],
     });
 

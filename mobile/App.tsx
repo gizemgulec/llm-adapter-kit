@@ -46,7 +46,7 @@ export default function App() {
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.content}>
-        <Text style={styles.title}>Aksigorta AI Asistan</Text>
+        <Text style={styles.title}>Sigorta AI Asistan</Text>
         <Text style={styles.subtitle}>Poliçen hakkında bir soru sor</Text>
 
         <TextInput
