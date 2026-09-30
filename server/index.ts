@@ -2,30 +2,34 @@
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
-import { ModelStrategy } from "../src/domain/llm/ModelStrategy.js";
 import { RagPipeline } from "../src/domain/llm/RagPipeline.js";
+import { FallbackProvider } from "../src/domain/llm/FallbackProvider.js";
+import { GeminiAdapter } from "../src/domain/llm/adapters/GeminiAdapter.js";
+import { MockAdapter } from "../src/domain/llm/adapters/MockAdapter.js";
 
 const app = express();
 
-// --- Ara katmanlar (middleware) ---
-app.use(cors());          // Mobil uygulamanın bu sunucuya erişebilmesi için izin
-app.use(express.json());  // Gelen JSON isteklerini otomatik ayrıştır
+// --- Middleware ---
+app.use(cors());          // Allow the mobile app to access this server
+app.use(express.json());  // Automatically parse incoming JSON requests
 
-// --- API key ve pipeline'ı bir kez kur ---
+// --- Initialize the API key and pipeline once ---
 const apiKey = process.env.GEMINI_API_KEY;
 if (!apiKey) {
   throw new Error(".env dosyasında GEMINI_API_KEY bulunamadı.");
 }
-const strategy = new ModelStrategy(apiKey);
-const provider = strategy.select("cheap");
+const provider = new FallbackProvider([
+  new GeminiAdapter(apiKey),
+  new MockAdapter(),
+]);
 const rag = new RagPipeline(provider);
 
-// --- Sağlık kontrolü (sunucu ayakta mı?) ---
+// --- Health check (is the server running?) ---
 app.get("/health", (req, res) => {
   res.json({ status: "ok" });
 });
 
-// --- Asıl endpoint: soru al, RAG'den geçir, cevabı dön ---
+// --- Main endpoint: accept a question, run it through RAG, and return the answer ---
 app.post("/ask", async (req, res) => {
   try {
     const { question } = req.body;
@@ -45,7 +49,7 @@ app.post("/ask", async (req, res) => {
   }
 });
 
-// --- Sunucuyu başlat ---
+// --- Start the server ---
 const PORT = 3000;
 app.listen(PORT, () => {
   console.log(`✅ Backend proxy çalışıyor: http://localhost:${PORT}`);

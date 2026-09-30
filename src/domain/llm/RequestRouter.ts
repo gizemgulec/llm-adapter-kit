@@ -2,15 +2,15 @@
 import type { LLMProvider } from "./types.js";
 import { ComplaintPipeline } from "./ComplaintPipeline.js";
 
-// Gelen isteğin tipi
+// Type of the incoming request
 export type RequestType = "complaint" | "question";
 
-// Router: gelen mesaja bakıp tipini belirler, doğru akışa yönlendirir.
-// Trafik polisi gibi: isteği doğru şeride sokar.
+// The router determines the type of an incoming message and directs it to the appropriate flow.
+// Like a traffic officer, it guides each request into the right lane.
 export class RequestRouter {
   constructor(private provider: LLMProvider) {}
 
-  // --- ADIM 1: Sınıflandır (bu bir şikayet mi, soru mu?) ---
+  // --- STEP 1: Classify (is this a complaint or a question?) ---
   private async classify(message: string): Promise<RequestType> {
     const result = await this.provider.complete({
       system:
@@ -20,16 +20,16 @@ export class RequestRouter {
     });
 
     const answer = result.text.trim().toUpperCase();
-    // Cevaba göre tip belirle
+    // Determine the type based on the response
     return answer.includes("SIKAYET") ? "complaint" : "question";
   }
 
-  // --- ADIM 2: Tipe göre yönlendir ---
+  // --- STEP 2: Route based on the type ---
   async route(message: string): Promise<{ type: RequestType; output: string }> {
     const type = await this.classify(message);
 
     if (type === "complaint") {
-      // Şikayet -> daha önce yazdığımız pipeline'a yönlendir
+      // Complaint -> route to the pipeline created earlier
       const pipeline = new ComplaintPipeline(this.provider);
       const result = await pipeline.run(message);
       return {
@@ -37,7 +37,7 @@ export class RequestRouter {
         output: `Özet: ${result.summary}\nAciliyet: ${result.urgency}`,
       };
     } else {
-      // Soru -> basit, tek adımlı hızlı cevap
+      // Question -> provide a simple, fast, single-step answer
       const result = await this.provider.complete({
         system: "Sen bir sigorta destek asistanısın. Soruyu kısa ve net yanıtla.",
         messages: [{ role: "user", content: message }],

@@ -6,15 +6,15 @@ export class RagPipeline {
   constructor(private readonly provider: LLMProvider) {}
 
   async ask(question: string): Promise<string> {
-    // --- 1. RETRIEVAL: En alakalı belgeleri bul (artık birden çok) ---
+    // --- 1. RETRIEVAL: Find the most relevant documents (now multiple) ---
     const docs = retrieve(question);
     console.log(`[Bulunan belge sayısı]: ${docs.length}`);
     docs.forEach((d, i) => console.log(`  Belge ${i + 1}: ${d.slice(0, 50)}...`));
 
-    // --- 2. AUGMENTED: Belgeleri soruyla birlikte AI'a ver ---
+    // --- 2. AUGMENTED: Send the documents to the AI along with the question ---
     let prompt: string;
     if (docs.length > 0) {
-      // Birden çok belgeyi numaralayıp tek metinde birleştir
+      // Number multiple documents and combine them into a single text
       const context = docs.map((d, i) => `[Belge ${i + 1}] ${d}`).join("\n\n");
       prompt =
         `Aşağıdaki bilgilere dayanarak soruyu yanıtla. ` +
@@ -27,7 +27,7 @@ export class RagPipeline {
         `Bu konuda elimde belge yok. Emin değilsen tahmin etme, "Bu konuda bilgim yok" de.`;
     }
 
-    // --- 3. GENERATION: AI belgelere bakarak cevap üretsin ---
+    // --- 3. GENERATION: Have the AI generate an answer based on the documents ---
     const result = await this.provider.complete({
       system: "Sen bir Sigorta destek asistanısın. Sadece verilen bilgilere dayan, uydurma.",
       messages: [{ role: "user", content: prompt }],

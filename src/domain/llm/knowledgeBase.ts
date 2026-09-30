@@ -1,7 +1,7 @@
 // src/domain/llm/knowledgeBase.ts
 
-// Sahte bir bilgi deposu — gerçekte bunlar Sigorta'nın poliçe metinleri,
-// dokümanları vs. olurdu. Şimdilik birkaç kısa "belge" ile başlıyoruz.
+// A mock knowledge base. In a real application, this would contain the insurer's policy text,
+// documents, and so on. For now, we are starting with a few short "documents."
 export const knowledgeBase = [
   {
     id: "kasko-cam",
@@ -26,21 +26,21 @@ export const knowledgeBase = [
   },
 ];
 
-// RETRIEVAL: Soruya en uygun EN İYİ N belgeyi bul (tek değil, birden çok).
-// Her belgeyi eşleşme sayısına göre puanla, en yüksek puanlıları döndür.
+// RETRIEVAL: Find the top N documents most relevant to the question, not just one.
+// Score each document by the number of matches and return the highest-scoring ones.
 export function retrieve(question: string, topN = 2): string[] {
   const lowerQuestion = question.toLowerCase();
 
-  // Her belgeyi puanla
+  // Score each document
   const scored = knowledgeBase.map((doc) => ({
     content: doc.content,
     score: doc.keywords.filter((kw) => lowerQuestion.includes(kw)).length,
   }));
 
-  // Sadece en az 1 eşleşme olanları al, puana göre sırala, ilk N'i döndür
+  // Keep documents with at least one match, sort by score, and return the first N
   return scored
-    .filter((item) => item.score > 0)      // hiç eşleşmeyeni ele
-    .sort((a, b) => b.score - a.score)     // yüksek puan önce
-    .slice(0, topN)                        // en iyi N tanesi
-    .map((item) => item.content);          // sadece metinleri dön
+    .filter((item) => item.score > 0)      // discard documents with no matches
+    .sort((a, b) => b.score - a.score)     // highest scores first
+    .slice(0, topN)                        // take the top N
+    .map((item) => item.content);          // return only the text
 }

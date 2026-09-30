@@ -10,7 +10,7 @@ import {
   SafeAreaView,
 } from "react-native";
 
-// DİKKAT: Kendi IP'nle backend adresi. localhost DEĞİL, bilgisayarının yerel IP'si.
+// NOTE: Set the backend URL to your own IP. Do NOT use localhost; use your computer's local IP.
 const BACKEND_URL = "http://192.168.111.4:3000/ask";
 
 export default function App() {

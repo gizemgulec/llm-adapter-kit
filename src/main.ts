@@ -12,9 +12,9 @@ async function run() {
   const rag = new RagPipeline(provider);
 
   const questions = [
-    "Kasko poliçesinde cam kırılması karşılanıyor mu?",              // 1 belge
-    "Kasko hasar başvurusunu kaç gün içinde ve nasıl yapmalıyım?",   // 2 belgeye değebilir (cam + hasar süresi)
-    "Evcil hayvan sigortası yapıyor musunuz?",                       // 0 belge
+    "Kasko poliçesinde cam kırılması karşılanıyor mu?",              // 1 document
+    "Kasko hasar başvurusunu kaç gün içinde ve nasıl yapmalıyım?",   // May match 2 documents (glass + claim deadline)
+    "Evcil hayvan sigortası yapıyor musunuz?",                       // 0 documents
   ];
 
   for (const q of questions) {
