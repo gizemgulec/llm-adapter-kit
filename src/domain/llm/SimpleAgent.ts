@@ -2,13 +2,13 @@
 import type { LLMProvider } from "./types.js";
 import { getPolicyInfo } from "./tools.js";
 
-// Basitleştirilmiş agent: AI'a bir araç tanıtır, AI karar verir,
-// gerekirse aracı çalıştırıp sonucu AI'a geri verir.
+// A simplified agent: introduces a tool to the AI, lets the AI decide,
+// and, if needed, runs the tool and sends the result back to the AI.
 export class SimpleAgent {
   constructor(private provider: LLMProvider) {}
 
   async run(userGoal: string): Promise<string> {
-    // --- 1. TUR: AI'a hedefi ve aracı tanıt ---
+    // --- TURN 1: Introduce the goal and tool to the AI ---
     const firstResponse = await this.provider.complete({
       system:
         "Sen bir sigorta asistanısın. Poliçe bilgisi gerekirse, SADECE şu formatta yanıt ver: " +
@@ -20,16 +20,16 @@ export class SimpleAgent {
     const aiDecision = firstResponse.text.trim();
     console.log("[AI'ın kararı]:", aiDecision);
 
-    // --- 2. AI araç çağırmak istiyor mu? ---
+    // --- Does the AI want to call a tool? ---
     if (aiDecision.startsWith("TOOL:getPolicyInfo:")) {
-      // Poliçe numarasını ayıkla
+      // Extract the policy number
       const policyNumber = aiDecision.split(":")[2]?.trim() ?? "";
 
-      // Aracı ÇALIŞTIR
+      // RUN THE TOOL
       const toolResult = getPolicyInfo(policyNumber);
       console.log("[Araç sonucu]:", toolResult);
 
-      // --- 3. Sonucu AI'a geri ver, final cevabı üret ---
+      // --- TURN 3: Send the result back to the AI and generate the final answer ---
       const finalResponse = await this.provider.complete({
         system:
           "Sen bir sigorta asistanısın. Araç sonucunu kullanarak kullanıcıya nazikçe cevap ver.",
@@ -44,7 +44,7 @@ export class SimpleAgent {
       return finalResponse.text.trim();
     }
 
-    // AI araç istemedi, doğrudan cevabı döndür
+    // The AI did not request a tool; return its response directly
     return aiDecision;
   }
 }

@@ -3,12 +3,12 @@ import type { LLMProvider } from "./types.js";
 import { GeminiAdapter } from "./adapters/GeminiAdapter.js";
 import { MockAdapter } from "./adapters/MockAdapter.js";
 
-// Hangi provider'ları destekliyoruz?
+// Which providers do we support?
 export type ProviderName = "gemini" | "mock";
 
-// Adapter üreten fabrika.
-// "Hangi adapter, nasıl kurulur" bilgisi artık burada toplanıyor;
-// üst katman (main.ts) bunu bilmek zorunda kalmıyor.
+// A factory that creates adapters.
+// Information about which adapter to use and how to configure it is centralized here,
+// so the upper layer (main.ts) does not need to know those details.
 export class ProviderFactory {
   constructor(private apiKey: string) {}
 
@@ -19,7 +19,7 @@ export class ProviderFactory {
       case "mock":
         return new MockAdapter();
       default:
-        // Bilinmeyen bir isim gelirse net hata ver
+        // Report a clear error if an unknown name is provided
         throw new Error(`Bilinmeyen provider: ${name}`);
     }
   }

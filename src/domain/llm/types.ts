@@ -1,6 +1,6 @@
 // src/domain/llm/types.ts
 
-// Bir tamamlama isteğinin girdisi
+// Input for a completion request
 export interface CompletionInput {
   system?: string;
   messages: { role: "user" | "assistant"; content: string }[];
@@ -8,14 +8,14 @@ export interface CompletionInput {
   temperature?: number;
 }
 
-// Bir tamamlama sonucunun çıktısı
+// Output of a completion request
 export interface CompletionResult {
   text: string;
   model: string;
 }
 
-// Üst katmanın (UI/hook) bildiği TEK arayüz.
-// Hangi provider olduğunu bilmez — adapter pattern'in kalbi bu.
+// The only interface the upper layer (UI/hook) knows about.
+// It does not know which provider is in use; this is the heart of the adapter pattern.
 export interface LLMProvider {
   readonly name: string;
   complete(input: CompletionInput): Promise<CompletionResult>;

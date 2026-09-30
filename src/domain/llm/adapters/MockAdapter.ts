@@ -1,8 +1,8 @@
 // src/domain/llm/adapters/MockAdapter.ts
 import type { LLMProvider, CompletionInput, CompletionResult } from "../types.js";
 
-// Gerçek API yerine sabit cevap dönen sahte provider.
-// Mimariyi API key olmadan test etmeni sağlar.
+// A mock provider that returns a fixed response instead of calling a real API.
+// Lets you test the architecture without an API key.
 export class MockAdapter implements LLMProvider {
   readonly name = "mock";
 

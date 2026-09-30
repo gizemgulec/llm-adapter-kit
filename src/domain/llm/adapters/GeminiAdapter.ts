@@ -2,7 +2,7 @@
 import { GoogleGenAI } from "@google/genai";
 import type { LLMProvider, CompletionInput, CompletionResult } from "../types.js";
 
-// Gemini'yi bizim ortak LLMProvider arayüzümüze uyarlayan adapter.
+// An adapter that maps Gemini to our common LLMProvider interface.
 export class GeminiAdapter implements LLMProvider {
   readonly name = "gemini";
   private readonly client: GoogleGenAI;
