@@ -1,4 +1,5 @@
 // src/domain/llm/knowledgeBase.ts
+import { embed, cosineSimilarity } from "./embeddings.js";
 
 // A mock knowledge base. In a real application, this would contain the insurer's policy text,
 // documents, and so on. For now, we are starting with a few short "documents."
@@ -26,21 +27,45 @@ export const knowledgeBase = [
   },
 ];
 
-// RETRIEVAL: Find the top N documents most relevant to the question, not just one.
-// Score each document by the number of matches and return the highest-scoring ones.
-export function retrieve(question: string, topN = 2): string[] {
-  const lowerQuestion = question.toLowerCase();
+// Belgelerin embedding'lerini önbellekte tutarız (her seferinde yeniden hesaplamamak için)
+let cachedDocEmbeddings: { content: string; vector: number[] }[] | null = null;
 
-  // Score each document
-  const scored = knowledgeBase.map((doc) => ({
+// Belgeleri bir kez embedding'e çevirip sakla
+async function getDocEmbeddings(apiKey: string) {
+  if (cachedDocEmbeddings) return cachedDocEmbeddings;
+
+  cachedDocEmbeddings = await Promise.all(
+    knowledgeBase.map(async (doc) => ({
+      content: doc.content,
+      vector: await embed(doc.content, apiKey),
+    }))
+  );
+  return cachedDocEmbeddings;
+}
+
+// VEKTÖR ARAMA: Soruyu embedding'e çevir, en anlamca yakın belgeleri bul.
+// Artık kelime eşleşmesine değil, ANLAM yakınlığına bakıyor.
+export async function retrieve(
+  question: string,
+  apiKey: string,
+  topN = 2,
+  minScore = 0.5
+): Promise<string[]> {
+  const docEmbeddings = await getDocEmbeddings(apiKey);
+
+  // Soruyu embedding'e çevir
+  const questionVector = await embed(question, apiKey);
+
+  // Her belge için benzerlik skorunu hesapla
+  const scored = docEmbeddings.map((doc) => ({
     content: doc.content,
-    score: doc.keywords.filter((kw) => lowerQuestion.includes(kw)).length,
+    score: cosineSimilarity(questionVector, doc.vector),
   }));
 
-  // Keep documents with at least one match, sort by score, and return the first N
+  // Skora göre sırala, eşiğin üstündekilerden en iyi N tanesini al
   return scored
-    .filter((item) => item.score > 0)      // discard documents with no matches
-    .sort((a, b) => b.score - a.score)     // highest scores first
-    .slice(0, topN)                        // take the top N
-    .map((item) => item.content);          // return only the text
+    .sort((a, b) => b.score - a.score)
+    .filter((item) => item.score >= minScore)
+    .slice(0, topN)
+    .map((item) => item.content);
 }

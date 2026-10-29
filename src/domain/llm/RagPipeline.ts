@@ -3,11 +3,14 @@ import type { LLMProvider } from "./types.js";
 import { retrieve } from "./knowledgeBase.js";
 
 export class RagPipeline {
-  constructor(private readonly provider: LLMProvider) {}
+  constructor(
+    private readonly provider: LLMProvider,
+    private readonly apiKey: string
+  ) {}
 
   async ask(question: string): Promise<string> {
     // --- 1. RETRIEVAL: Find the most relevant documents (now multiple) ---
-    const docs = retrieve(question);
+    const docs = await retrieve(question, this.apiKey);
     console.log(`[Bulunan belge sayısı]: ${docs.length}`);
     docs.forEach((d, i) => console.log(`  Belge ${i + 1}: ${d.slice(0, 50)}...`));
 
