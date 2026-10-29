@@ -9,7 +9,7 @@ async function run() {
 
   const strategy = new ModelStrategy(apiKey);
   const provider = strategy.select("cheap");
-  const rag = new RagPipeline(provider);
+  const rag = new RagPipeline(provider, apiKey);
 
   const questions = [
     "Kasko poliçesinde cam kırılması karşılanıyor mu?",              // 1 document

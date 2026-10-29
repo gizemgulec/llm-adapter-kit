@@ -22,7 +22,7 @@ const provider = new FallbackProvider([
   new GeminiAdapter(apiKey),
   new MockAdapter(),
 ]);
-const rag = new RagPipeline(provider);
+const rag = new RagPipeline(provider, apiKey);
 
 // --- Health check (is the server running?) ---
 app.get("/health", (req, res) => {
