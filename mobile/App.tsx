@@ -13,9 +13,16 @@ import {
 // NOTE: Set the backend URL to your own IP. Do NOT use localhost; use your computer's local IP.
 const BACKEND_URL = "http://192.168.111.4:3000/ask";
 
+type Source = {
+  id: string;
+  content: string;
+  score: number;
+};
+
 export default function App() {
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
+  const [sources, setSources] = useState<Source[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -24,6 +31,7 @@ export default function App() {
     setLoading(true);
     setError("");
     setAnswer("");
+    setSources([]);
 
     try {
       const res = await fetch(BACKEND_URL, {
@@ -36,6 +44,7 @@ export default function App() {
 
       const data = await res.json();
       setAnswer(data.answer);
+      setSources(data.sources ?? []);
     } catch (err: any) {
       setError(err.message ?? "Bir hata oluştu.");
     } finally {
@@ -74,6 +83,17 @@ export default function App() {
           <View style={styles.answerBox}>
             <Text style={styles.answerLabel}>Cevap:</Text>
             <Text style={styles.answerText}>{answer}</Text>
+            {sources.length > 0 && (
+              <View style={styles.sources}>
+                <Text style={styles.sourcesLabel}>Kaynaklar:</Text>
+                {sources.map((source) => (
+                  <View key={source.id} style={styles.source}>
+                    <Text style={styles.sourceId}>{source.id}</Text>
+                    <Text style={styles.sourceText}>{source.content}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
           </View>
         )}
       </ScrollView>
@@ -116,4 +136,9 @@ const styles = StyleSheet.create({
   },
   answerLabel: { fontWeight: "700", marginBottom: 8, color: "#1a1a2e" },
   answerText: { fontSize: 16, lineHeight: 24, color: "#333" },
+  sources: { marginTop: 16 },
+  sourcesLabel: { fontWeight: "700", marginBottom: 8, color: "#1a1a2e" },
+  source: { borderTopWidth: 1, borderTopColor: "#eee", paddingTop: 8, marginTop: 8 },
+  sourceId: { fontSize: 13, fontWeight: "600", color: "#666", marginBottom: 4 },
+  sourceText: { fontSize: 14, lineHeight: 20, color: "#555" },
 });

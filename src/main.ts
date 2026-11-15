@@ -20,8 +20,9 @@ async function run() {
   for (const q of questions) {
     console.log("\n=== SORU ===");
     console.log(q);
-    const answer = await rag.ask(q);
-    console.log("[Cevap]:", answer);
+    const result = await rag.ask(q);
+    console.log("[Cevap]:", result.answer);
+    console.log("[Kaynaklar]:", result.sources.map((source) => source.id));
   }
 }
 

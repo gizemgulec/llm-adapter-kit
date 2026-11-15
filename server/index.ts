@@ -39,10 +39,10 @@ app.post("/ask", async (req, res) => {
     }
 
     console.log("[Gelen soru]:", question);
-    const answer = await rag.ask(question);
-    console.log("[Dönen cevap]:", answer);
+    const result = await rag.ask(question);
+    console.log("[Dönen cevap]:", result.answer);
 
-    res.json({ question, answer });
+    res.json({ question, ...result });
   } catch (err) {
     console.error("[Hata]:", err);
     res.status(500).json({ error: "Sunucu hatası oluştu." });

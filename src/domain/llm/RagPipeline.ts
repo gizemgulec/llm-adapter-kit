@@ -1,6 +1,6 @@
 // src/domain/llm/RagPipeline.ts
 import type { LLMProvider } from "./types.js";
-import { retrieve } from "./knowledgeBase.js";
+import { retrieve, type RetrievedDocument } from "./knowledgeBase.js";
 
 export class RagPipeline {
   constructor(
@@ -8,19 +8,20 @@ export class RagPipeline {
     private readonly apiKey: string
   ) {}
 
-  async ask(question: string): Promise<string> {
+  async ask(question: string): Promise<{ answer: string; sources: RetrievedDocument[] }> {
     // --- 1. RETRIEVAL: Find the most relevant documents (now multiple) ---
     const docs = await retrieve(question, this.apiKey);
     console.log(`[Bulunan belge sayısı]: ${docs.length}`);
-    docs.forEach((d, i) => console.log(`  Belge ${i + 1}: ${d.slice(0, 50)}...`));
+    docs.forEach((doc) => console.log(`  Kaynak: ${doc.id}`));
 
     // --- 2. AUGMENTED: Send the documents to the AI along with the question ---
     let prompt: string;
     if (docs.length > 0) {
       // Number multiple documents and combine them into a single text
-      const context = docs.map((d, i) => `[Belge ${i + 1}] ${d}`).join("\n\n");
+      const context = docs.map((doc) => `[Kaynak: ${doc.id}] ${doc.content}`).join("\n\n");
       prompt =
         `Aşağıdaki bilgilere dayanarak soruyu yanıtla. ` +
+        `İddialarını ilgili kaynak kimliğiyle [kaynak-id] biçiminde belirt. ` +
         `Eğer bilgiler soruyu yanıtlamaya yetmiyorsa, "Bu konuda bilgim yok" de.\n\n` +
         `BİLGİLER:\n${context}\n\n` +
         `SORU: ${question}`;
@@ -36,6 +37,6 @@ export class RagPipeline {
       messages: [{ role: "user", content: prompt }],
     });
 
-    return result.text.trim();
+    return { answer: result.text.trim(), sources: docs };
   }
 }

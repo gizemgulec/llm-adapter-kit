@@ -27,8 +27,14 @@ export const knowledgeBase = [
   },
 ];
 
+export interface RetrievedDocument {
+  id: string;
+  content: string;
+  score: number;
+}
+
 // Belgelerin embedding'lerini önbellekte tutarız (her seferinde yeniden hesaplamamak için)
-let cachedDocEmbeddings: { content: string; vector: number[] }[] | null = null;
+let cachedDocEmbeddings: { id: string; content: string; vector: number[] }[] | null = null;
 
 // Belgeleri bir kez embedding'e çevirip sakla
 async function getDocEmbeddings(apiKey: string) {
@@ -36,6 +42,7 @@ async function getDocEmbeddings(apiKey: string) {
 
   cachedDocEmbeddings = await Promise.all(
     knowledgeBase.map(async (doc) => ({
+      id: doc.id,
       content: doc.content,
       vector: await embed(doc.content, apiKey),
     }))
@@ -50,7 +57,7 @@ export async function retrieve(
   apiKey: string,
   topN = 2,
   minScore = 0.5
-): Promise<string[]> {
+): Promise<RetrievedDocument[]> {
   const docEmbeddings = await getDocEmbeddings(apiKey);
 
   // Soruyu embedding'e çevir
@@ -58,6 +65,7 @@ export async function retrieve(
 
   // Her belge için benzerlik skorunu hesapla
   const scored = docEmbeddings.map((doc) => ({
+    id: doc.id,
     content: doc.content,
     score: cosineSimilarity(questionVector, doc.vector),
   }));
@@ -66,6 +74,5 @@ export async function retrieve(
   return scored
     .sort((a, b) => b.score - a.score)
     .filter((item) => item.score >= minScore)
-    .slice(0, topN)
-    .map((item) => item.content);
+    .slice(0, topN);
 }
