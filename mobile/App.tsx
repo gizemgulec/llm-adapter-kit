@@ -12,11 +12,18 @@ import {
 
 // NOTE: Set the backend URL to your own IP. Do NOT use localhost; use your computer's local IP.
 const BACKEND_URL = "http://192.168.111.4:3000/ask";
+const MAX_QUESTION_LENGTH = 1000;
 
 type Source = {
   id: string;
   content: string;
   score: number;
+};
+
+type AskResponse = {
+  answer?: string;
+  sources?: Source[];
+  error?: string;
 };
 
 export default function App() {
@@ -27,7 +34,16 @@ export default function App() {
   const [error, setError] = useState("");
 
   const ask = async () => {
-    if (!question.trim()) return;
+    const normalizedQuestion = question.trim();
+    if (!normalizedQuestion) {
+      setError("Lütfen bir soru yazın.");
+      return;
+    }
+    if (normalizedQuestion.length > MAX_QUESTION_LENGTH) {
+      setError(`Soru en fazla ${MAX_QUESTION_LENGTH} karakter olabilir.`);
+      return;
+    }
+
     setLoading(true);
     setError("");
     setAnswer("");
@@ -37,16 +53,21 @@ export default function App() {
       const res = await fetch(BACKEND_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question }),
+        body: JSON.stringify({ question: normalizedQuestion }),
       });
 
-      if (!res.ok) throw new Error(`Sunucu hatası: ${res.status}`);
+      const data: AskResponse = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error ?? `Sunucu hatası: ${res.status}`);
+      }
+      if (typeof data.answer !== "string") {
+        throw new Error("Sunucudan geçersiz yanıt alındı.");
+      }
 
-      const data = await res.json();
       setAnswer(data.answer);
       setSources(data.sources ?? []);
-    } catch (err: any) {
-      setError(err.message ?? "Bir hata oluştu.");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Bir hata oluştu.");
     } finally {
       setLoading(false);
     }
@@ -65,7 +86,11 @@ export default function App() {
           value={question}
           onChangeText={setQuestion}
           multiline
+          maxLength={MAX_QUESTION_LENGTH}
         />
+        <Text style={styles.characterCount}>
+          {question.length}/{MAX_QUESTION_LENGTH}
+        </Text>
 
         <TouchableOpacity
           style={[styles.button, loading && styles.buttonDisabled]}
@@ -116,6 +141,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#ddd",
   },
+  characterCount: { alignSelf: "flex-end", color: "#666", marginTop: 6 },
   button: {
     backgroundColor: "#e60028",
     borderRadius: 12,

@@ -7,6 +7,7 @@ import { FallbackProvider } from "../src/domain/llm/FallbackProvider.js";
 import { GeminiAdapter } from "../src/domain/llm/adapters/GeminiAdapter.js";
 import { MockAdapter } from "../src/domain/llm/adapters/MockAdapter.js";
 
+const MAX_QUESTION_LENGTH = 1000;
 const app = express();
 
 // --- Middleware ---
@@ -32,17 +33,27 @@ app.get("/health", (req, res) => {
 // --- Main endpoint: accept a question, run it through RAG, and return the answer ---
 app.post("/ask", async (req, res) => {
   try {
-    const { question } = req.body;
+    const question: unknown = req.body?.question;
 
-    if (!question || typeof question !== "string") {
+    if (typeof question !== "string") {
       return res.status(400).json({ error: "question alanı gerekli (string)." });
     }
 
-    console.log("[Gelen soru]:", question);
-    const result = await rag.ask(question);
+    const normalizedQuestion = question.trim();
+    if (!normalizedQuestion) {
+      return res.status(400).json({ error: "Soru boş olamaz." });
+    }
+    if (normalizedQuestion.length > MAX_QUESTION_LENGTH) {
+      return res.status(400).json({
+        error: `Soru en fazla ${MAX_QUESTION_LENGTH} karakter olabilir.`,
+      });
+    }
+
+    console.log("[Gelen soru]:", normalizedQuestion);
+    const result = await rag.ask(normalizedQuestion);
     console.log("[Dönen cevap]:", result.answer);
 
-    res.json({ question, ...result });
+    res.json({ question: normalizedQuestion, ...result });
   } catch (err) {
     console.error("[Hata]:", err);
     res.status(500).json({ error: "Sunucu hatası oluştu." });
