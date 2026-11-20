@@ -1,5 +1,5 @@
 // src/domain/llm/adapters/GeminiAdapter.ts
-import { GoogleGenAI, type Content, type Part } from "@google/genai";
+import { GoogleGenAI, type Content, type GenerateContentParameters, type Part } from "@google/genai";
 import type {
   LLMProvider,
   CompletionInput,
@@ -20,36 +20,10 @@ export class GeminiAdapter implements LLMProvider {
   }
 
   async complete(input: CompletionInput): Promise<CompletionResult> {
-    const config = {
-      ...(input.system ? { systemInstruction: input.system } : {}),
-      ...(input.maxTokens !== undefined ? { maxOutputTokens: input.maxTokens } : {}),
-      ...(input.temperature !== undefined ? { temperature: input.temperature } : {}),
-      ...(input.tools?.length
-        ? {
-            tools: [
-              {
-                functionDeclarations: input.tools.map((tool) => ({
-                  name: tool.name,
-                  description: tool.description,
-                  parametersJsonSchema: tool.parameters,
-                })),
-              },
-            ],
-          }
-        : {}),
-    };
-
-    const response = await this.client.models.generateContent({
-      model: this.model,
-      contents: toGeminiContents(input.messages),
-      config,
-    });
+    const response = await this.client.models.generateContent(this.buildRequest(input));
 
     const parts = response.candidates?.[0]?.content?.parts ?? [];
-    const text = parts
-      .filter((part) => part.text && !part.thought)
-      .map((part) => part.text)
-      .join("");
+    const text = textFromParts(parts);
 
     const toolCalls: ToolCall[] = parts.flatMap((part) => {
       const call = part.functionCall;
@@ -70,6 +44,49 @@ export class GeminiAdapter implements LLMProvider {
       ...(toolCalls.length > 0 ? { toolCalls } : {}),
     };
   }
+
+  async *stream(input: CompletionInput): AsyncIterable<string> {
+    const chunks = await this.client.models.generateContentStream(this.buildRequest(input));
+    for await (const chunk of chunks) {
+      const text = textFromParts(chunk.candidates?.[0]?.content?.parts ?? []);
+      if (text) yield text;
+    }
+  }
+
+  private buildRequest(input: CompletionInput): GenerateContentParameters {
+    const config = {
+      ...(input.system ? { systemInstruction: input.system } : {}),
+      ...(input.maxTokens !== undefined ? { maxOutputTokens: input.maxTokens } : {}),
+      ...(input.temperature !== undefined ? { temperature: input.temperature } : {}),
+      ...(input.tools?.length
+        ? {
+            tools: [
+              {
+                functionDeclarations: input.tools.map((tool) => ({
+                  name: tool.name,
+                  description: tool.description,
+                  parametersJsonSchema: tool.parameters,
+                })),
+              },
+            ],
+          }
+        : {}),
+    };
+
+    return {
+      model: this.model,
+      contents: toGeminiContents(input.messages),
+      config,
+    };
+  }
+}
+
+// Joins the visible text of a response, skipping the model's internal "thought" parts.
+function textFromParts(parts: Part[]): string {
+  return parts
+    .filter((part) => part.text && !part.thought)
+    .map((part) => part.text)
+    .join("");
 }
 
 // Converts our provider-neutral history into Gemini's format.

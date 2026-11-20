@@ -21,6 +21,7 @@ You ask an insurance question on your phone → the app hits a backend → the b
 - **RAG** — embedding-based semantic search (Gemini embeddings + cosine similarity) finds the relevant documents *before* answering, so the model responds from real content and hallucinates far less. It matches by meaning, not keywords: "ön camım çatladı" still finds the windshield document. Answers cite their source documents. No matching doc? It says "I don't know."
 - **Resilience** — retries with backoff for transient errors, then falls back to the next provider if one keeps failing.
 - **Backend proxy** — the API key lives on the server, never on the device. The mobile app only ever talks to my own backend.
+- **Streaming** — the answer appears on the phone as it's generated. Every provider can stream, the backend sends the sources first and then the answer chunk by chunk as NDJSON (`POST /ask/stream`), and the app reads it with `expo/fetch`. Fallback still works for streams, until the first chunk arrives.
 - **React Native app** — a real Expo app that ties it all together, end to end.
 
 ## Tech

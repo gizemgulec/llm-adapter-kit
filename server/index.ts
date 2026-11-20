@@ -25,6 +25,23 @@ const provider = new FallbackProvider([
 ]);
 const rag = new RagPipeline(provider, apiKey);
 
+// Validates the request body. Returns the normalized question, or an error message.
+function parseQuestion(body: unknown): { question: string } | { error: string } {
+  const question: unknown = (body as { question?: unknown } | undefined)?.question;
+
+  if (typeof question !== "string") {
+    return { error: "question alanı gerekli (string)." };
+  }
+  const normalizedQuestion = question.trim();
+  if (!normalizedQuestion) {
+    return { error: "Soru boş olamaz." };
+  }
+  if (normalizedQuestion.length > MAX_QUESTION_LENGTH) {
+    return { error: `Soru en fazla ${MAX_QUESTION_LENGTH} karakter olabilir.` };
+  }
+  return { question: normalizedQuestion };
+}
+
 // --- Health check (is the server running?) ---
 app.get("/health", (req, res) => {
   res.json({ status: "ok" });
@@ -33,35 +50,74 @@ app.get("/health", (req, res) => {
 // --- Main endpoint: accept a question, run it through RAG, and return the answer ---
 app.post("/ask", async (req, res) => {
   try {
-    const question: unknown = req.body?.question;
-
-    if (typeof question !== "string") {
-      return res.status(400).json({ error: "question alanı gerekli (string)." });
+    const parsed = parseQuestion(req.body);
+    if ("error" in parsed) {
+      return res.status(400).json({ error: parsed.error });
     }
 
-    const normalizedQuestion = question.trim();
-    if (!normalizedQuestion) {
-      return res.status(400).json({ error: "Soru boş olamaz." });
-    }
-    if (normalizedQuestion.length > MAX_QUESTION_LENGTH) {
-      return res.status(400).json({
-        error: `Soru en fazla ${MAX_QUESTION_LENGTH} karakter olabilir.`,
-      });
-    }
-
-    console.log("[Gelen soru]:", normalizedQuestion);
-    const result = await rag.ask(normalizedQuestion);
+    console.log("[Gelen soru]:", parsed.question);
+    const result = await rag.ask(parsed.question);
     console.log("[Dönen cevap]:", result.answer);
 
-    res.json({ question: normalizedQuestion, ...result });
+    res.json({ question: parsed.question, ...result });
   } catch (err) {
     console.error("[Hata]:", err);
     res.status(500).json({ error: "Sunucu hatası oluştu." });
   }
 });
 
+// --- Streaming endpoint: same as /ask, but the answer arrives chunk by chunk ---
+// Response is NDJSON (one JSON object per line):
+//   {"type":"sources","sources":[...]}   once, before the answer
+//   {"type":"delta","text":"..."}        zero or more answer chunks
+//   {"type":"done"}                      the answer is complete
+//   {"type":"error","error":"..."}       the stream failed after it started
+app.post("/ask/stream", async (req, res) => {
+  const parsed = parseQuestion(req.body);
+  if ("error" in parsed) {
+    return res.status(400).json({ error: parsed.error });
+  }
+
+  let clientClosed = false;
+  res.on("close", () => {
+    clientClosed = true;
+  });
+
+  const send = (event: object) => res.write(JSON.stringify(event) + "\n");
+
+  try {
+    console.log("[Gelen soru (stream)]:", parsed.question);
+    const { answer, sources } = await rag.askStream(parsed.question);
+
+    res.status(200);
+    res.setHeader("Content-Type", "application/x-ndjson; charset=utf-8");
+    res.setHeader("Cache-Control", "no-cache");
+    res.flushHeaders();
+    send({ type: "sources", sources });
+
+    let fullAnswer = "";
+    for await (const text of answer) {
+      if (clientClosed) break; // stop generating if the app disconnected
+      fullAnswer += text;
+      send({ type: "delta", text });
+    }
+
+    console.log("[Dönen cevap (stream)]:", fullAnswer.trim());
+    if (!clientClosed) send({ type: "done" });
+    res.end();
+  } catch (err) {
+    console.error("[Hata]:", err);
+    if (res.headersSent) {
+      send({ type: "error", error: "Cevap üretilirken hata oluştu." });
+      res.end();
+    } else {
+      res.status(500).json({ error: "Sunucu hatası oluştu." });
+    }
+  }
+});
+
 // --- Start the server ---
-const PORT = 3000;
+const PORT = Number(process.env.PORT) || 3000;
 app.listen(PORT, () => {
   console.log(`✅ Backend proxy çalışıyor: http://localhost:${PORT}`);
 });
