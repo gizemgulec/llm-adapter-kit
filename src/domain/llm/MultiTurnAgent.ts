@@ -1,55 +1,45 @@
 // src/domain/llm/MultiTurnAgent.ts
-import type { LLMProvider } from "./types.js";
-import { getContactInfo, getPolicyInfo } from "./tools.js";
+import type { LLMProvider, Message } from "./types.js";
+import { insuranceTools, runTool } from "./tools.js";
 
+const MAX_TURNS = 4;
+
+// A multi-turn agent using the provider's native function calling.
+// The model receives the tool definitions and returns structured tool calls;
+// we run them, send the results back, and repeat until the model answers in text.
 export class MultiTurnAgent {
-  constructor(private provider: LLMProvider) {}
+  constructor(private readonly provider: LLMProvider) {}
 
   async run(userGoal: string): Promise<string> {
-    const messages: { role: "user" | "assistant"; content: string }[] = [
-      { role: "user", content: userGoal },
-    ];
+    const messages: Message[] = [{ role: "user", content: userGoal }];
 
-    for (let turn = 0; turn < 4; turn += 1) {
+    for (let turn = 0; turn < MAX_TURNS; turn += 1) {
       const response = await this.provider.complete({
         system:
-          "Sen bir sigorta asistanısın. Kullanıcının hedefini çözmek için gerekirse araç çağır. " +
-          "Poliçe bilgisi için tam olarak TOOL:getPolicyInfo:<poliçe_numarası>, " +
-          "iletişim bilgisi için tam olarak TOOL:getContactInfo:<poliçe_numarası> formatını kullan. " +
-          "İki bilgi de istendiyse iki aracı ayrı turlarda çağır. Araç sonucu verildiğinde " +
-          "gerekli diğer aracı çağır; tüm bilgiler hazır olduğunda kullanıcıya doğrudan yanıt ver.",
+          "Sen bir sigorta asistanısın. Kullanıcının hedefini çözmek için gerekirse araçları kullan. " +
+          "Tüm bilgiler hazır olduğunda kullanıcıya doğrudan yanıt ver.",
         messages,
+        tools: insuranceTools,
       });
 
-      const decision = response.text.trim();
-      console.log("[AI'ın yanıtı]:", decision);
-
-      const policyMatch = decision.match(/^TOOL:getPolicyInfo:(.+)$/);
-      const contactMatch = decision.match(/^TOOL:getContactInfo:(.+)$/);
-
-      if (policyMatch) {
-        const policyNumber = policyMatch[1]?.trim() ?? "";
-        const toolResult = getPolicyInfo(policyNumber);
-        console.log("[Araç sonucu]:", toolResult);
-        messages.push(
-          { role: "assistant", content: decision },
-          { role: "user", content: `getPolicyInfo sonucu: ${toolResult}` },
-        );
-        continue;
+      const toolCalls = response.toolCalls ?? [];
+      if (toolCalls.length === 0) {
+        return response.text.trim();
       }
 
-      if (contactMatch) {
-        const policyNumber = contactMatch[1]?.trim() ?? "";
-        const toolResult = getContactInfo(policyNumber);
-        console.log("[Araç sonucu]:", toolResult);
-        messages.push(
-          { role: "assistant", content: decision },
-          { role: "user", content: `getContactInfo sonucu: ${toolResult}` },
-        );
-        continue;
-      }
+      messages.push({ role: "assistant", content: response.text, toolCalls });
 
-      return decision;
+      for (const call of toolCalls) {
+        console.log(`[Araç çağrısı]: ${call.name}(${JSON.stringify(call.args)})`);
+        const toolResult = runTool(call.name, call.args);
+        console.log("[Araç sonucu]:", toolResult);
+        messages.push({
+          role: "tool",
+          name: call.name,
+          content: toolResult,
+          ...(call.id ? { toolCallId: call.id } : {}),
+        });
+      }
     }
 
     throw new Error("Araç çağrıları beklenen tur sayısında tamamlanamadı.");
