@@ -1,4 +1,6 @@
 import { useState } from "react";
+// expo/fetch supports reading the response body as a stream; React Native's built-in fetch does not.
+import { fetch } from "expo/fetch";
 import {
   View,
   Text,
@@ -11,7 +13,7 @@ import {
 } from "react-native";
 
 // NOTE: Set the backend URL to your own IP. Do NOT use localhost; use your computer's local IP.
-const BACKEND_URL = "http://192.168.111.4:3000/ask";
+const BACKEND_URL = "http://192.168.111.4:3000/ask/stream";
 const MAX_QUESTION_LENGTH = 1000;
 
 type Source = {
@@ -20,11 +22,35 @@ type Source = {
   score: number;
 };
 
-type AskResponse = {
-  answer?: string;
-  sources?: Source[];
-  error?: string;
-};
+// One line of the backend's NDJSON stream.
+type StreamEvent =
+  | { type: "sources"; sources: Source[] }
+  | { type: "delta"; text: string }
+  | { type: "done" }
+  | { type: "error"; error: string };
+
+// Reads an NDJSON body line by line and calls onEvent for each parsed event.
+async function readEvents(
+  body: ReadableStream<Uint8Array>,
+  onEvent: (event: StreamEvent) => void
+): Promise<void> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    // A chunk can end mid-line; keep the incomplete last line for the next read.
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    for (const line of lines) {
+      if (line.trim()) onEvent(JSON.parse(line) as StreamEvent);
+    }
+  }
+}
 
 export default function App() {
   const [question, setQuestion] = useState("");
@@ -56,16 +82,34 @@ export default function App() {
         body: JSON.stringify({ question: normalizedQuestion }),
       });
 
-      const data: AskResponse = await res.json();
       if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
         throw new Error(data.error ?? `Sunucu hatası: ${res.status}`);
       }
-      if (typeof data.answer !== "string") {
+      if (!res.body) {
         throw new Error("Sunucudan geçersiz yanıt alındı.");
       }
 
-      setAnswer(data.answer);
-      setSources(data.sources ?? []);
+      let finished = false;
+      await readEvents(res.body, (event) => {
+        switch (event.type) {
+          case "sources":
+            setSources(event.sources);
+            break;
+          case "delta":
+            setAnswer((previous) => previous + event.text);
+            break;
+          case "done":
+            finished = true;
+            break;
+          case "error":
+            throw new Error(event.error);
+        }
+      });
+
+      if (!finished) {
+        throw new Error("Bağlantı yarıda kesildi, cevap eksik olabilir.");
+      }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Bir hata oluştu.");
     } finally {
@@ -100,7 +144,10 @@ export default function App() {
           <Text style={styles.buttonText}>{loading ? "Soruluyor..." : "Sor"}</Text>
         </TouchableOpacity>
 
-        {loading && <ActivityIndicator style={{ marginTop: 20 }} size="large" />}
+        {/* Spinner only until the first chunk; after that the answer itself shows progress */}
+        {loading && answer === "" && (
+          <ActivityIndicator style={{ marginTop: 20 }} size="large" />
+        )}
 
         {error !== "" && <Text style={styles.error}>{error}</Text>}
 

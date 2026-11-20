@@ -13,7 +13,7 @@ There are two separate npm projects: the root (backend + `src/` domain library) 
 Root (backend). There's no build step; everything runs through `tsx`. There's no test runner or linter yet, and `npm test` only prints an error.
 
 ```bash
-npx tsx server/index.ts   # backend proxy on :3000 (POST /ask, GET /health)
+npx tsx server/index.ts   # backend proxy on :3000, or $PORT (POST /ask, POST /ask/stream, GET /health)
 npx tsx src/main.ts       # CLI demo: runs three sample questions through RagPipeline
 npx tsc --noEmit          # typecheck root (mobile/ is excluded; strict, noUncheckedIndexedAccess, exactOptionalPropertyTypes)
 ```
@@ -28,7 +28,7 @@ npx expo install <package>   # use this, not npm install, for SDK-compatible ver
 npx tsc --noEmit
 ```
 
-`mobile/App.tsx` hardcodes `BACKEND_URL` to a LAN IP (`http://<ip>:3000/ask`). A physical device can't reach `localhost`, so update it to the dev machine's IP.
+`mobile/App.tsx` hardcodes `BACKEND_URL` to a LAN IP (`http://<ip>:3000/ask/stream`). A physical device can't reach `localhost`, so update it to the dev machine's IP.
 
 ## Architecture
 
@@ -42,6 +42,11 @@ Everything in `src/domain/llm/` depends only on the `LLMProvider` interface in `
   - `ModelStrategy` selects a Gemini model by task (`"cheap"` vs `"reasoning"`).
   - `FallbackProvider` is itself an `LLMProvider`. It tries each wrapped provider in order, wrapping each call in `withRetry` (`retry.ts`, linear-increasing backoff).
   - The server uses `FallbackProvider([Gemini, Mock])`, so when Gemini fails the server returns a mock answer instead of a 500.
+- **Streaming**: every provider implements `stream(input): AsyncIterable<string>` (text only, no tool calls).
+  - `FallbackProvider.stream` retries and falls back only until the first chunk arrives; a mid-stream error goes to the caller, since switching providers would duplicate text.
+  - `RagPipeline.askStream` runs retrieval first, then returns `{ sources, answer }` with `answer` as the stream.
+  - `POST /ask/stream` responds with NDJSON, one event per line: `sources`, then `delta` events, then `done`, or `error` if it fails after starting. Validation errors are a normal 400 JSON response. `/ask` is unchanged.
+  - The mobile app reads the stream with `fetch` from `expo/fetch`, because React Native's built-in `fetch` can't stream response bodies.
 - **RAG** (`RagPipeline` → `knowledgeBase.retrieve` → `embeddings.ts`):
   - The knowledge base is an in-memory array of insurance docs.
   - Doc embeddings (`gemini-embedding-001`) are computed lazily on the first request and cached in a module-level variable for the life of the process.

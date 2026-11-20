@@ -1,5 +1,5 @@
 // src/domain/llm/RagPipeline.ts
-import type { LLMProvider } from "./types.js";
+import type { CompletionInput, LLMProvider } from "./types.js";
 import { retrieve, type RetrievedDocument } from "./knowledgeBase.js";
 
 export class RagPipeline {
@@ -9,6 +9,25 @@ export class RagPipeline {
   ) {}
 
   async ask(question: string): Promise<{ answer: string; sources: RetrievedDocument[] }> {
+    const { input, sources } = await this.prepare(question);
+
+    // --- 3. GENERATION: Have the AI generate an answer based on the documents ---
+    const result = await this.provider.complete(input);
+    return { answer: result.text.trim(), sources };
+  }
+
+  // Same flow as ask(), but the answer is streamed chunk by chunk.
+  // Retrieval finishes first, so the sources are known before the first chunk.
+  async askStream(
+    question: string
+  ): Promise<{ answer: AsyncIterable<string>; sources: RetrievedDocument[] }> {
+    const { input, sources } = await this.prepare(question);
+    return { answer: this.provider.stream(input), sources };
+  }
+
+  private async prepare(
+    question: string
+  ): Promise<{ input: CompletionInput; sources: RetrievedDocument[] }> {
     // --- 1. RETRIEVAL: Find the most relevant documents (now multiple) ---
     const docs = await retrieve(question, this.apiKey);
     console.log(`[Bulunan belge sayısı]: ${docs.length}`);
@@ -31,12 +50,12 @@ export class RagPipeline {
         `Bu konuda elimde belge yok. Emin değilsen tahmin etme, "Bu konuda bilgim yok" de.`;
     }
 
-    // --- 3. GENERATION: Have the AI generate an answer based on the documents ---
-    const result = await this.provider.complete({
-      system: "Sen bir Sigorta destek asistanısın. Sadece verilen bilgilere dayan, uydurma.",
-      messages: [{ role: "user", content: prompt }],
-    });
-
-    return { answer: result.text.trim(), sources: docs };
+    return {
+      input: {
+        system: "Sen bir Sigorta destek asistanısın. Sadece verilen bilgilere dayan, uydurma.",
+        messages: [{ role: "user", content: prompt }],
+      },
+      sources: docs,
+    };
   }
 }

@@ -45,4 +45,7 @@ export interface CompletionResult {
 export interface LLMProvider {
   readonly name: string;
   complete(input: CompletionInput): Promise<CompletionResult>;
+  // Streams the text answer chunk by chunk. Text only: tool calls are not streamed,
+  // so use complete() for tool-calling flows.
+  stream(input: CompletionInput): AsyncIterable<string>;
 }
