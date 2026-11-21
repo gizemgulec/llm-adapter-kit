@@ -1,11 +1,11 @@
 // src/domain/llm/RagPipeline.ts
 import type { CompletionInput, LLMProvider } from "./types.js";
-import { retrieve, type RetrievedDocument } from "./knowledgeBase.js";
+import type { Retriever, RetrievedDocument } from "./knowledgeBase.js";
 
 export class RagPipeline {
   constructor(
     private readonly provider: LLMProvider,
-    private readonly apiKey: string
+    private readonly retriever: Retriever
   ) {}
 
   async ask(question: string): Promise<{ answer: string; sources: RetrievedDocument[] }> {
@@ -29,7 +29,7 @@ export class RagPipeline {
     question: string
   ): Promise<{ input: CompletionInput; sources: RetrievedDocument[] }> {
     // --- 1. RETRIEVAL: Find the most relevant documents (now multiple) ---
-    const docs = await retrieve(question, this.apiKey);
+    const docs = await this.retriever.retrieve(question);
     console.log(`[Bulunan belge sayısı]: ${docs.length}`);
     docs.forEach((doc) => console.log(`  Kaynak: ${doc.id}`));
 

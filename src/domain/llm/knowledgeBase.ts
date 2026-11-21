@@ -1,5 +1,8 @@
 // src/domain/llm/knowledgeBase.ts
-import { embed, cosineSimilarity } from "./embeddings.js";
+import type { EmbeddingProvider } from "./types.js";
+import { cosineSimilarity } from "./embeddings.js";
+import { ProviderUnavailableError, describeError } from "./errors.js";
+import { withRetry } from "./retry.js";
 
 // A mock knowledge base. In a real application, this would contain the insurer's policy text,
 // documents, and so on. For now, we are starting with a few short "documents."
@@ -33,52 +36,71 @@ export interface RetrievedDocument {
   score: number;
 }
 
-// Belgelerin embedding'lerini önbellekte tutarız (her seferinde yeniden hesaplamamak için)
-let cachedDocEmbeddings: { id: string; content: string; vector: number[] }[] | null = null;
-
-// Belgeleri bir kez embedding'e çevirip sakla
-async function getDocEmbeddings(apiKey: string) {
-  if (cachedDocEmbeddings) return cachedDocEmbeddings;
-
-  cachedDocEmbeddings = await Promise.all(
-    knowledgeBase.map(async (doc) => ({
-      id: doc.id,
-      content: doc.content,
-      vector: await embed(doc.content, apiKey),
-    }))
-  );
-  return cachedDocEmbeddings;
-}
-
 // Minimum cosine similarity for a document to count as relevant.
 // Measured with gemini-embedding-001 on 15 sample questions: every question's main document
 // scored >= 0.766, while unrelated documents scored 0.52–0.73 (with gemini-embedding-001,
 // even off-topic text scores above 0.5). Re-measure when the documents or the embedding model change.
 export const MIN_RELEVANCE_SCORE = 0.75;
 
+type DocVector = { id: string; content: string; vector: number[] };
+
 // VEKTÖR ARAMA: Soruyu embedding'e çevir, en anlamca yakın belgeleri bul.
 // Artık kelime eşleşmesine değil, ANLAM yakınlığına bakıyor.
-export async function retrieve(
-  question: string,
-  apiKey: string,
-  topN = 2,
-  minScore = MIN_RELEVANCE_SCORE
-): Promise<RetrievedDocument[]> {
-  const docEmbeddings = await getDocEmbeddings(apiKey);
+export class Retriever {
+  // Document vectors are computed once and cached. Caching the promise (not the result)
+  // means concurrent first requests share one computation instead of each embedding every document.
+  private docVectors: Promise<DocVector[]> | null = null;
 
-  // Soruyu embedding'e çevir
-  const questionVector = await embed(question, apiKey);
+  constructor(private readonly embedder: EmbeddingProvider) {}
 
-  // Her belge için benzerlik skorunu hesapla
-  const scored = docEmbeddings.map((doc) => ({
-    id: doc.id,
-    content: doc.content,
-    score: cosineSimilarity(questionVector, doc.vector),
-  }));
+  async retrieve(
+    question: string,
+    topN = 2,
+    minScore = MIN_RELEVANCE_SCORE
+  ): Promise<RetrievedDocument[]> {
+    const [docVectors, questionVector] = await Promise.all([
+      this.getDocVectors(),
+      this.embed(question),
+    ]);
 
-  // Skora göre sırala, eşiğin üstündekilerden en iyi N tanesini al
-  return scored
-    .sort((a, b) => b.score - a.score)
-    .filter((item) => item.score >= minScore)
-    .slice(0, topN);
+    // Her belge için benzerlik skorunu hesapla
+    const scored = docVectors.map((doc) => ({
+      id: doc.id,
+      content: doc.content,
+      score: cosineSimilarity(questionVector, doc.vector),
+    }));
+
+    // Skora göre sırala, eşiğin üstündekilerden en iyi N tanesini al
+    return scored
+      .sort((a, b) => b.score - a.score)
+      .filter((item) => item.score >= minScore)
+      .slice(0, topN);
+  }
+
+  private getDocVectors(): Promise<DocVector[]> {
+    this.docVectors ??= Promise.all(
+      knowledgeBase.map(async (doc) => ({
+        id: doc.id,
+        content: doc.content,
+        vector: await this.embed(doc.content),
+      }))
+    ).catch((err: unknown) => {
+      this.docVectors = null; // don't cache a failure; the next request tries again
+      throw err;
+    });
+    return this.docVectors;
+  }
+
+  // Retries transient errors, but never falls back to another embedding model:
+  // its vectors wouldn't be comparable with the cached document vectors.
+  private async embed(text: string): Promise<number[]> {
+    try {
+      return await withRetry(() => this.embedder.embed(text));
+    } catch (err) {
+      throw new ProviderUnavailableError(
+        `Embedding servisi (${this.embedder.name}) başarısız oldu: ${describeError(err)}`,
+        err
+      );
+    }
+  }
 }

@@ -49,3 +49,11 @@ export interface LLMProvider {
   // so use complete() for tool-calling flows.
   stream(input: CompletionInput): AsyncIterable<string>;
 }
+
+// Turns text into a vector that represents its meaning (an embedding).
+// Vectors from different models aren't comparable, so the same provider must embed
+// both the documents and the questions searched against them.
+export interface EmbeddingProvider {
+  readonly name: string;
+  embed(text: string): Promise<number[]>;
+}
