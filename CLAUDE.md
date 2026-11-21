@@ -10,15 +10,24 @@ There are two separate npm projects: the root (backend + `src/` domain library) 
 
 ## Commands
 
-Root (backend). There's no build step; everything runs through `tsx`. There's no test runner or linter yet, and `npm test` only prints an error.
+Root (backend). There's no build step; everything runs through `tsx`. There's no linter.
 
 ```bash
 npx tsx server/index.ts   # backend proxy on :3000, or $PORT (POST /ask, POST /ask/stream, GET /health)
 npx tsx src/main.ts       # CLI demo: runs three sample questions through RagPipeline
-npx tsc --noEmit          # typecheck root (mobile/ is excluded; strict, noUncheckedIndexedAccess, exactOptionalPropertyTypes)
+npm run typecheck         # tsc --noEmit (mobile/ is excluded; strict, noUncheckedIndexedAccess, exactOptionalPropertyTypes)
+npm test                  # all unit tests (node:test via tsx)
+npx tsx --test test/retry.test.ts                                     # one test file
+npx tsx --test --test-name-pattern="closes the provider" test/*.test.ts # tests whose name matches
 ```
 
 Both entry points need `GEMINI_API_KEY` in the root `.env` (loaded through `dotenv/config`; the file is gitignored).
+
+Tests:
+- Tests live in `test/*.test.ts` and use `node:test` with `node:assert/strict`. There are no extra dependencies.
+- They make no network calls and need no API key. Fakes are in `test/helpers.ts`: `scriptedProvider`, `streamingProvider`, `httpError`, and `silenceLogs`.
+- Node 20 doesn't discover `.ts` test files on its own, so the files are passed explicitly (`test/*.test.ts`, expanded by the shell). A new test file must match that pattern.
+- The routes live in `server/app.ts` (`createApp(rag)`), separate from `server/index.ts` (which wires the real providers and listens), so `test/server.test.ts` can run the real app against a fake pipeline on a random port.
 
 Mobile (run from `mobile/`):
 
@@ -32,7 +41,7 @@ npx tsc --noEmit
 
 ## Architecture
 
-Everything in `src/domain/llm/` depends only on the provider interfaces in `types.ts`: `LLMProvider` (`complete(CompletionInput) → CompletionResult`) and `EmbeddingProvider` (`embed(text) → number[]`). Higher layers never import a concrete provider; concrete adapters are wired together only in `server/index.ts` and `src/main.ts`.
+Everything in `src/domain/llm/` depends only on the provider interfaces in `types.ts`: `LLMProvider` (`complete(CompletionInput) → CompletionResult`) and `EmbeddingProvider` (`embed(text) → number[]`). Higher layers never import a concrete provider; concrete adapters are wired together only in `server/index.ts` and `src/main.ts`. Route handlers and validation live in `server/app.ts`.
 
 `types.ts` also defines provider-neutral tool calling: `CompletionInput.tools` (`ToolDefinition` with a JSON Schema `parameters`), `CompletionResult.toolCalls`, and a `Message` union with `user`, `assistant` (optionally carrying `toolCalls`) and `tool` (a tool result) roles. Adapters translate these to the provider format. `ToolCall.providerMetadata` is opaque round-trip data (Gemini's `thoughtSignature`); keep it on the assistant message, or Gemini rejects the next request.
 
@@ -70,7 +79,7 @@ Everything in `src/domain/llm/` depends only on the provider interfaces in `type
 
 - ESM with `module: nodenext`: relative imports must use the `.js` extension, even for `.ts` files. `verbatimModuleSyntax` is on, so type-only imports must use `import type`.
 - Code comments are in English. All user-facing strings, LLM prompts, error messages, and log lines are in **Turkish**. Keep new ones in Turkish.
-- `server/index.ts` validates `question` (must be a string, non-empty after trimming, at most `MAX_QUESTION_LENGTH` = 1000 characters). `mobile/App.tsx` duplicates the same limit; keep the two in sync.
+- `server/app.ts` validates `question` (must be a string, non-empty after trimming, at most `MAX_QUESTION_LENGTH` = 1000 characters). `mobile/App.tsx` duplicates the same limit; keep the two in sync.
 - This is a learning and portfolio project. Keep changes incremental and targeted, not large rewrites.
 - Don't add claims to the README or docs that the code doesn't support (e.g. fine-tuning/LoRA, on-device AI, native bridges, none of which exist).
 - Gemini model names change often. If a model name errors, look up the current name instead of guessing.
