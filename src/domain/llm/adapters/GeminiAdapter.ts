@@ -90,7 +90,8 @@ function textFromParts(parts: Part[]): string {
 }
 
 // Converts our provider-neutral history into Gemini's format.
-function toGeminiContents(messages: Message[]): Content[] {
+// Exported for tests.
+export function toGeminiContents(messages: Message[]): Content[] {
   const contents: Content[] = [];
 
   for (const message of messages) {

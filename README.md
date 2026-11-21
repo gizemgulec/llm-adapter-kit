@@ -37,6 +37,9 @@ npx tsx server/index.ts
 # 2. Mobile app
 cd mobile
 npx expo start
+
+# Tests (no API key or network needed)
+npm test
 ```
 
 ## Current limitations
