@@ -40,10 +40,12 @@ Everything in `src/domain/llm/` depends only on the `LLMProvider` interface in `
 - **Composition around providers**:
   - `ProviderFactory` creates a provider by name (`"gemini"`/`"mock"`).
   - `ModelStrategy` selects a Gemini model by task (`"cheap"` vs `"reasoning"`).
-  - `FallbackProvider` is itself an `LLMProvider`. It tries each wrapped provider in order, wrapping each call in `withRetry` (`retry.ts`, linear-increasing backoff).
-  - The server uses `FallbackProvider([Gemini, Mock])`, so when Gemini fails the server returns a mock answer instead of a 500.
+  - `FallbackProvider` is itself an `LLMProvider`. It tries each wrapped provider in order, wrapping each call in `withRetry`.
+  - `withRetry` (`retry.ts`) uses exponential backoff and retries only transient errors: 408, 429, 5xx, and network errors with no `status`. Other HTTP errors (e.g. 400 invalid key) fail immediately and move on to the next provider.
+  - When every provider fails, `FallbackProvider` throws `AllProvidersFailedError`. The server maps it to a 503 with a user-facing "try again later" message (an `error` event on `/ask/stream`). Any other error is a 500.
+  - The server's chain is `FallbackProvider([Gemini])`. Don't add `MockAdapter` to it: as a fallback, its placeholder text (which echoes the whole RAG prompt) would reach users as if it were a real answer. A second real provider goes in this list.
 - **Streaming**: every provider implements `stream(input): AsyncIterable<string>` (text only, no tool calls).
-  - `FallbackProvider.stream` retries and falls back only until the first chunk arrives; a mid-stream error goes to the caller, since switching providers would duplicate text.
+  - `FallbackProvider.stream` retries and falls back only until the first chunk arrives; a mid-stream error goes to the caller, since switching providers would duplicate text. If the caller stops early, it closes the inner provider stream, so generation stops when the client disconnects.
   - `RagPipeline.askStream` runs retrieval first, then returns `{ sources, answer }` with `answer` as the stream.
   - `POST /ask/stream` responds with NDJSON, one event per line: `sources`, then `delta` events, then `done`, or `error` if it fails after starting. Validation errors are a normal 400 JSON response. `/ask` is unchanged.
   - The mobile app reads the stream with `fetch` from `expo/fetch`, because React Native's built-in `fetch` can't stream response bodies.

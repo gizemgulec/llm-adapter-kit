@@ -24,7 +24,7 @@ export class FallbackProvider implements LLMProvider {
       }
     }
 
-    throw allFailedError(lastError);
+    throw new AllProvidersFailedError(lastError);
   }
 
   // Retry and fallback apply only until the first chunk arrives. After that, switching
@@ -44,15 +44,30 @@ export class FallbackProvider implements LLMProvider {
       }
 
       const { iterator, first } = opened;
-      if (first.done) return;
-      yield first.value;
-      for (let next = await iterator.next(); !next.done; next = await iterator.next()) {
-        yield next.value;
+      try {
+        if (first.done) return;
+        yield first.value;
+        for (let next = await iterator.next(); !next.done; next = await iterator.next()) {
+          yield next.value;
+        }
+        return;
+      } finally {
+        // If the caller stops early (e.g. the client disconnected), close the provider's
+        // stream too, so the model stops generating tokens nobody will read.
+        await iterator.return?.();
       }
-      return;
     }
 
-    throw allFailedError(lastError);
+    throw new AllProvidersFailedError(lastError);
+  }
+}
+
+// Thrown when every provider failed, so callers can tell "LLM unavailable" apart from bugs.
+export class AllProvidersFailedError extends Error {
+  constructor(readonly lastError: unknown) {
+    const errorMessage = lastError instanceof Error ? lastError.message : String(lastError);
+    super(`Tüm provider'lar başarısız oldu. Son hata: ${errorMessage}`);
+    this.name = "AllProvidersFailedError";
   }
 }
 
@@ -61,9 +76,4 @@ async function openStream(provider: LLMProvider, input: CompletionInput) {
   const iterator = provider.stream(input)[Symbol.asyncIterator]();
   const first = await iterator.next();
   return { iterator, first };
-}
-
-function allFailedError(lastError: unknown): Error {
-  const errorMessage = lastError instanceof Error ? lastError.message : String(lastError);
-  return new Error(`Tüm provider'lar başarısız oldu. Son hata: ${errorMessage}`);
 }
