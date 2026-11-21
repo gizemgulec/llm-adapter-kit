@@ -13,7 +13,7 @@ async function run() {
 
   const questions = [
     "Kasko poliçesinde cam kırılması karşılanıyor mu?",              // 1 document
-    "Kasko hasar başvurusunu kaç gün içinde ve nasıl yapmalıyım?",   // May match 2 documents (glass + claim deadline)
+    "Kasko hasar başvurusunu kaç gün içinde ve nasıl yapmalıyım?",   // 1 document (claim deadline)
     "Evcil hayvan sigortası yapıyor musunuz?",                       // 0 documents
   ];
 

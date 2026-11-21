@@ -50,13 +50,19 @@ async function getDocEmbeddings(apiKey: string) {
   return cachedDocEmbeddings;
 }
 
+// Minimum cosine similarity for a document to count as relevant.
+// Measured with gemini-embedding-001 on 15 sample questions: every question's main document
+// scored >= 0.766, while unrelated documents scored 0.52–0.73 (with gemini-embedding-001,
+// even off-topic text scores above 0.5). Re-measure when the documents or the embedding model change.
+export const MIN_RELEVANCE_SCORE = 0.75;
+
 // VEKTÖR ARAMA: Soruyu embedding'e çevir, en anlamca yakın belgeleri bul.
 // Artık kelime eşleşmesine değil, ANLAM yakınlığına bakıyor.
 export async function retrieve(
   question: string,
   apiKey: string,
   topN = 2,
-  minScore = 0.5
+  minScore = MIN_RELEVANCE_SCORE
 ): Promise<RetrievedDocument[]> {
   const docEmbeddings = await getDocEmbeddings(apiKey);
 
