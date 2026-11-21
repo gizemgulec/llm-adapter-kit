@@ -3,11 +3,11 @@ import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import { RagPipeline } from "../src/domain/llm/RagPipeline.js";
-import { FallbackProvider } from "../src/domain/llm/FallbackProvider.js";
+import { AllProvidersFailedError, FallbackProvider } from "../src/domain/llm/FallbackProvider.js";
 import { GeminiAdapter } from "../src/domain/llm/adapters/GeminiAdapter.js";
-import { MockAdapter } from "../src/domain/llm/adapters/MockAdapter.js";
 
 const MAX_QUESTION_LENGTH = 1000;
+const UNAVAILABLE_MESSAGE = "Şu anda cevap veremiyorum. Lütfen biraz sonra tekrar deneyin.";
 const app = express();
 
 // --- Middleware ---
@@ -19,9 +19,10 @@ const apiKey = process.env.GEMINI_API_KEY;
 if (!apiKey) {
   throw new Error(".env dosyasında GEMINI_API_KEY bulunamadı.");
 }
+// Only real providers here. MockAdapter is for tests: as a fallback it would send its
+// placeholder text to users as if it were a real answer. Add a second real provider to this list.
 const provider = new FallbackProvider([
   new GeminiAdapter(apiKey),
-  new MockAdapter(),
 ]);
 const rag = new RagPipeline(provider, apiKey);
 
@@ -62,7 +63,11 @@ app.post("/ask", async (req, res) => {
     res.json({ question: parsed.question, ...result });
   } catch (err) {
     console.error("[Hata]:", err);
-    res.status(500).json({ error: "Sunucu hatası oluştu." });
+    if (err instanceof AllProvidersFailedError) {
+      res.status(503).json({ error: UNAVAILABLE_MESSAGE });
+    } else {
+      res.status(500).json({ error: "Sunucu hatası oluştu." });
+    }
   }
 });
 
@@ -108,7 +113,9 @@ app.post("/ask/stream", async (req, res) => {
   } catch (err) {
     console.error("[Hata]:", err);
     if (res.headersSent) {
-      send({ type: "error", error: "Cevap üretilirken hata oluştu." });
+      const message =
+        err instanceof AllProvidersFailedError ? UNAVAILABLE_MESSAGE : "Cevap üretilirken hata oluştu.";
+      send({ type: "error", error: message });
       res.end();
     } else {
       res.status(500).json({ error: "Sunucu hatası oluştu." });
