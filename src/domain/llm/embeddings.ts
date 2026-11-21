@@ -1,15 +1,5 @@
-import { GoogleGenAI } from "@google/genai";
-
-// Metni, anlamını temsil eden sayı dizisine (embedding) çevirir.
-export async function embed(text: string, apiKey: string): Promise<number[]> {
-  const client = new GoogleGenAI({ apiKey });
-  const result = await client.models.embedContent({
-    model: "gemini-embedding-001",
-    contents: text,
-  });
-  // Gemini embedding'i bir sayı dizisi döndürür
-  return result.embeddings?.[0]?.values ?? [];
-}
+// src/domain/llm/embeddings.ts
+// Embedding vectors come from an EmbeddingProvider (see adapters/GeminiEmbeddingAdapter.ts).
 
 // İki vektörün ne kadar benzediğini ölçer (cosine similarity).
 // 1'e yakın = çok benzer, 0'a yakın = alakasız.

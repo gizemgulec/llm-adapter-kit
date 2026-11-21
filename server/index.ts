@@ -3,8 +3,11 @@ import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import { RagPipeline } from "../src/domain/llm/RagPipeline.js";
-import { AllProvidersFailedError, FallbackProvider } from "../src/domain/llm/FallbackProvider.js";
+import { FallbackProvider } from "../src/domain/llm/FallbackProvider.js";
+import { Retriever } from "../src/domain/llm/knowledgeBase.js";
+import { ProviderUnavailableError } from "../src/domain/llm/errors.js";
 import { GeminiAdapter } from "../src/domain/llm/adapters/GeminiAdapter.js";
+import { GeminiEmbeddingAdapter } from "../src/domain/llm/adapters/GeminiEmbeddingAdapter.js";
 
 const MAX_QUESTION_LENGTH = 1000;
 const UNAVAILABLE_MESSAGE = "Şu anda cevap veremiyorum. Lütfen biraz sonra tekrar deneyin.";
@@ -24,7 +27,8 @@ if (!apiKey) {
 const provider = new FallbackProvider([
   new GeminiAdapter(apiKey),
 ]);
-const rag = new RagPipeline(provider, apiKey);
+const retriever = new Retriever(new GeminiEmbeddingAdapter(apiKey));
+const rag = new RagPipeline(provider, retriever);
 
 // Validates the request body. Returns the normalized question, or an error message.
 function parseQuestion(body: unknown): { question: string } | { error: string } {
@@ -63,7 +67,7 @@ app.post("/ask", async (req, res) => {
     res.json({ question: parsed.question, ...result });
   } catch (err) {
     console.error("[Hata]:", err);
-    if (err instanceof AllProvidersFailedError) {
+    if (err instanceof ProviderUnavailableError) {
       res.status(503).json({ error: UNAVAILABLE_MESSAGE });
     } else {
       res.status(500).json({ error: "Sunucu hatası oluştu." });
@@ -112,11 +116,14 @@ app.post("/ask/stream", async (req, res) => {
     res.end();
   } catch (err) {
     console.error("[Hata]:", err);
+    const unavailable = err instanceof ProviderUnavailableError;
     if (res.headersSent) {
-      const message =
-        err instanceof AllProvidersFailedError ? UNAVAILABLE_MESSAGE : "Cevap üretilirken hata oluştu.";
-      send({ type: "error", error: message });
+      // The stream has started: report the error as an event
+      send({ type: "error", error: unavailable ? UNAVAILABLE_MESSAGE : "Cevap üretilirken hata oluştu." });
       res.end();
+    } else if (unavailable) {
+      // Failed before streaming (e.g. during retrieval): a normal JSON error
+      res.status(503).json({ error: UNAVAILABLE_MESSAGE });
     } else {
       res.status(500).json({ error: "Sunucu hatası oluştu." });
     }

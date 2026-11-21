@@ -1,5 +1,6 @@
 import type { LLMProvider, CompletionInput, CompletionResult } from "./types.js";
 import { withRetry } from "./retry.js";
+import { ProviderUnavailableError, describeError } from "./errors.js";
 
 // Moves to the next provider if the primary provider still fails after retries.
 export class FallbackProvider implements LLMProvider {
@@ -63,10 +64,9 @@ export class FallbackProvider implements LLMProvider {
 }
 
 // Thrown when every provider failed, so callers can tell "LLM unavailable" apart from bugs.
-export class AllProvidersFailedError extends Error {
-  constructor(readonly lastError: unknown) {
-    const errorMessage = lastError instanceof Error ? lastError.message : String(lastError);
-    super(`Tüm provider'lar başarısız oldu. Son hata: ${errorMessage}`);
+export class AllProvidersFailedError extends ProviderUnavailableError {
+  constructor(lastError: unknown) {
+    super(`Tüm provider'lar başarısız oldu. Son hata: ${describeError(lastError)}`, lastError);
     this.name = "AllProvidersFailedError";
   }
 }
