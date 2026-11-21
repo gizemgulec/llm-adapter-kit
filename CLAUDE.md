@@ -32,7 +32,7 @@ npx tsc --noEmit
 
 ## Architecture
 
-Everything in `src/domain/llm/` depends only on the `LLMProvider` interface in `types.ts` (`complete(CompletionInput) → CompletionResult`). Higher layers never import a concrete provider, with one exception noted below.
+Everything in `src/domain/llm/` depends only on the provider interfaces in `types.ts`: `LLMProvider` (`complete(CompletionInput) → CompletionResult`) and `EmbeddingProvider` (`embed(text) → number[]`). Higher layers never import a concrete provider; concrete adapters are wired together only in `server/index.ts` and `src/main.ts`.
 
 `types.ts` also defines provider-neutral tool calling: `CompletionInput.tools` (`ToolDefinition` with a JSON Schema `parameters`), `CompletionResult.toolCalls`, and a `Message` union with `user`, `assistant` (optionally carrying `toolCalls`) and `tool` (a tool result) roles. Adapters translate these to the provider format. `ToolCall.providerMetadata` is opaque round-trip data (Gemini's `thoughtSignature`); keep it on the assistant message, or Gemini rejects the next request.
 
@@ -49,14 +49,16 @@ Everything in `src/domain/llm/` depends only on the `LLMProvider` interface in `
   - `RagPipeline.askStream` runs retrieval first, then returns `{ sources, answer }` with `answer` as the stream.
   - `POST /ask/stream` responds with NDJSON, one event per line: `sources`, then `delta` events, then `done`, or `error` if it fails after starting. Validation errors are a normal 400 JSON response. `/ask` is unchanged.
   - The mobile app reads the stream with `fetch` from `expo/fetch`, because React Native's built-in `fetch` can't stream response bodies.
-- **RAG** (`RagPipeline` → `knowledgeBase.retrieve` → `embeddings.ts`):
+- **RAG** (`RagPipeline` → `Retriever` in `knowledgeBase.ts` → `EmbeddingProvider`):
   - The knowledge base is an in-memory array of insurance docs.
-  - Doc embeddings (`gemini-embedding-001`) are computed lazily on the first request and cached in a module-level variable for the life of the process.
-  - Retrieval ranks docs by cosine similarity (`topN=2`, `minScore=0.5`).
+  - Embeddings go through the `EmbeddingProvider` interface in `types.ts`, implemented by `GeminiEmbeddingAdapter` (`gemini-embedding-001`). `RagPipeline` takes an `LLMProvider` and a `Retriever`, never an API key.
+  - `Retriever` computes the doc vectors lazily and caches them per instance, for the life of the process. It caches the promise, so concurrent first requests share one computation, and a failed computation isn't cached.
+  - `Retriever` retries transient embedding errors through `withRetry`, then throws `ProviderUnavailableError` (from `errors.ts`, the base class of `AllProvidersFailedError`). The server maps any `ProviderUnavailableError` to 503.
+  - There is deliberately no fallback to another embedding model: vectors from different models aren't comparable, so the documents and the question must be embedded by the same provider.
+  - Retrieval ranks docs by cosine similarity (`topN=2`, `minScore = MIN_RELEVANCE_SCORE = 0.75`, measured for `gemini-embedding-001`; re-measure if the model or docs change).
   - The prompt asks the model to cite `[kaynak-id]` and to answer "Bu konuda bilgim yok" when the context is insufficient.
   - `ask()` returns `{ answer, sources }`. The server spreads this into the `/ask` response, and the mobile app renders `sources`.
   - The `keywords` field on knowledge-base docs is left over from earlier keyword retrieval and is unused now.
-  - **Exception:** `RagPipeline` takes the raw `apiKey` as well as a provider, because embeddings call Gemini directly instead of going through `LLMProvider`.
 - **Orchestration demos** (not wired into the server):
   - `ComplaintPipeline` chains summarize → urgency.
   - `RequestRouter` classifies a message as complaint or question, then routes it.
