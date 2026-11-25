@@ -4,18 +4,57 @@
 import express from "express";
 import cors from "cors";
 import type { RagPipeline } from "../src/domain/llm/RagPipeline.js";
+import type { ChatTurn } from "../src/domain/llm/types.js";
 import { ProviderUnavailableError } from "../src/domain/llm/errors.js";
 
 export const MAX_QUESTION_LENGTH = 1000;
+// Only the most recent turns are sent to the model, to keep the prompt (and its cost) bounded.
+export const MAX_HISTORY_MESSAGES = 10;
+// Answers are longer than questions, so turns get a larger limit than MAX_QUESTION_LENGTH.
+export const MAX_HISTORY_MESSAGE_LENGTH = 4000;
 export const UNAVAILABLE_MESSAGE = "Şu anda cevap veremiyorum. Lütfen biraz sonra tekrar deneyin.";
 
 // The part of RagPipeline the routes use.
 export type AskService = Pick<RagPipeline, "ask" | "askStream">;
 
-// Validates the request body. Returns the normalized question, or an error message.
-function parseQuestion(body: unknown): { question: string } | { error: string } {
-  const question: unknown = (body as { question?: unknown } | undefined)?.question;
+type ParsedRequest = { question: string; history: ChatTurn[] } | { error: string };
 
+// Validates the request body: { question, history? }.
+function parseRequest(body: unknown): ParsedRequest {
+  const parsedQuestion = parseQuestion((body as { question?: unknown } | undefined)?.question);
+  if ("error" in parsedQuestion) return parsedQuestion;
+
+  const parsedHistory = parseHistory((body as { history?: unknown } | undefined)?.history);
+  if ("error" in parsedHistory) return parsedHistory;
+
+  return { question: parsedQuestion.question, history: parsedHistory.history };
+}
+
+// History comes from the client: [{ role: "user" | "assistant", content }], oldest first.
+function parseHistory(value: unknown): { history: ChatTurn[] } | { error: string } {
+  if (value === undefined) return { history: [] };
+  if (!Array.isArray(value)) return { error: "history bir dizi olmalı." };
+
+  const history: ChatTurn[] = [];
+  for (const item of value as unknown[]) {
+    const { role, content } = (item ?? {}) as { role?: unknown; content?: unknown };
+    if ((role !== "user" && role !== "assistant") || typeof content !== "string") {
+      return { error: "history öğeleri { role: 'user' | 'assistant', content: string } olmalı." };
+    }
+    if (content.length > MAX_HISTORY_MESSAGE_LENGTH) {
+      return { error: `history mesajları en fazla ${MAX_HISTORY_MESSAGE_LENGTH} karakter olabilir.` };
+    }
+    // Skip empty turns (e.g. an answer that failed before any text arrived): providers reject them.
+    if (content.trim()) history.push({ role, content });
+  }
+
+  // Keep the most recent turns, starting on a user turn so the conversation reads in order.
+  const recent = history.slice(-MAX_HISTORY_MESSAGES);
+  const firstUser = recent.findIndex((turn) => turn.role === "user");
+  return { history: firstUser === -1 ? [] : recent.slice(firstUser) };
+}
+
+function parseQuestion(question: unknown): { question: string } | { error: string } {
   if (typeof question !== "string") {
     return { error: "question alanı gerekli (string)." };
   }
@@ -44,13 +83,13 @@ export function createApp(rag: AskService) {
   // --- Main endpoint: accept a question, run it through RAG, and return the answer ---
   app.post("/ask", async (req, res) => {
     try {
-      const parsed = parseQuestion(req.body);
+      const parsed = parseRequest(req.body);
       if ("error" in parsed) {
         return res.status(400).json({ error: parsed.error });
       }
 
       console.log("[Gelen soru]:", parsed.question);
-      const result = await rag.ask(parsed.question);
+      const result = await rag.ask(parsed.question, parsed.history);
       console.log("[Dönen cevap]:", result.answer);
 
       res.json({ question: parsed.question, ...result });
@@ -71,7 +110,7 @@ export function createApp(rag: AskService) {
   //   {"type":"done"}                      the answer is complete
   //   {"type":"error","error":"..."}       the stream failed after it started
   app.post("/ask/stream", async (req, res) => {
-    const parsed = parseQuestion(req.body);
+    const parsed = parseRequest(req.body);
     if ("error" in parsed) {
       return res.status(400).json({ error: parsed.error });
     }
@@ -85,7 +124,7 @@ export function createApp(rag: AskService) {
 
     try {
       console.log("[Gelen soru (stream)]:", parsed.question);
-      const { answer, sources } = await rag.askStream(parsed.question);
+      const { answer, sources } = await rag.askStream(parsed.question, parsed.history);
 
       res.status(200);
       res.setHeader("Content-Type", "application/x-ndjson; charset=utf-8");

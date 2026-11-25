@@ -3,7 +3,15 @@ import assert from "node:assert/strict";
 import { once } from "node:events";
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
-import { createApp, MAX_QUESTION_LENGTH, UNAVAILABLE_MESSAGE, type AskService } from "../server/app.js";
+import {
+  createApp,
+  MAX_HISTORY_MESSAGE_LENGTH,
+  MAX_HISTORY_MESSAGES,
+  MAX_QUESTION_LENGTH,
+  UNAVAILABLE_MESSAGE,
+  type AskService,
+} from "../server/app.js";
+import type { ChatTurn } from "../src/domain/llm/types.js";
 import { ProviderUnavailableError } from "../src/domain/llm/errors.js";
 import type { RetrievedDocument } from "../src/domain/llm/knowledgeBase.js";
 import { silenceLogs } from "./helpers.js";
@@ -22,13 +30,18 @@ async function* failAfterFirst(error: Error) {
 }
 const unavailable = () => new ProviderUnavailableError("Gemini down");
 
+// The history each call received, newest last.
+const receivedHistories: ChatTurn[][] = [];
+
 const fakeRag: AskService = {
-  async ask(question) {
+  async ask(question, history = []) {
+    receivedHistories.push(history);
     if (question === "unavailable") throw unavailable();
     if (question === "bug") throw new Error("bug");
     return { answer: "Evet", sources: [source] };
   },
-  async askStream(question) {
+  async askStream(question, history = []) {
+    receivedHistories.push(history);
     if (question === "unavailable") throw unavailable();
     if (question === "bug") throw new Error("bug");
     if (question === "unavailable mid-stream") return { sources: [source], answer: failAfterFirst(unavailable()) };
@@ -73,8 +86,53 @@ describe("server", () => {
           assert.deepEqual(await res.json(), { error });
         });
       }
+
+      for (const [label, history] of [
+        ["non-array history", "merhaba"],
+        ["history item with an unknown role", [{ role: "system", content: "x" }]],
+        ["history item without content", [{ role: "user" }]],
+        ["history item that isn't an object", [null]],
+        ["too long history message", [{ role: "assistant", content: "a".repeat(MAX_HISTORY_MESSAGE_LENGTH + 1) }]],
+      ] as const) {
+        it(`rejects a ${label} with 400`, async () => {
+          const res = await post(path, { question: "Soru?", history });
+          assert.equal(res.status, 400);
+        });
+      }
     });
   }
+
+  describe("history", () => {
+    const turn = (role: "user" | "assistant", content: string) => ({ role, content });
+    const lastHistory = () => receivedHistories.at(-1);
+
+    for (const path of ["/ask", "/ask/stream"]) {
+      it(`${path} passes the history to the pipeline`, async () => {
+        const history = [turn("user", "Cam?"), turn("assistant", "Evet.")];
+        await (await post(path, { question: "Muafiyet?", history })).text();
+        assert.deepEqual(lastHistory(), history);
+      });
+    }
+
+    it("uses an empty history when none is sent", async () => {
+      await (await post("/ask", { question: "Soru?" })).text();
+      assert.deepEqual(lastHistory(), []);
+    });
+
+    it(`keeps only the last ${MAX_HISTORY_MESSAGES} messages, starting on a user turn`, async () => {
+      // 13 messages: u0 a0 u1 a1 ... u6. The last 10 start with a0, so a0 is dropped as well.
+      const history = Array.from({ length: 13 }, (_, i) => turn(i % 2 ? "assistant" : "user", `m${i}`));
+      await (await post("/ask", { question: "Soru?", history })).text();
+      assert.deepEqual(lastHistory(), history.slice(4));
+      assert.equal(lastHistory()?.[0]?.role, "user");
+    });
+
+    it("drops empty turns", async () => {
+      const history = [turn("user", "Cam?"), turn("assistant", "  "), turn("user", "Trafik?"), turn("assistant", "Zorunlu.")];
+      await (await post("/ask", { question: "Soru?", history })).text();
+      assert.deepEqual(lastHistory(), [turn("user", "Cam?"), turn("user", "Trafik?"), turn("assistant", "Zorunlu.")]);
+    });
+  });
 
   describe("POST /ask", () => {
     it("returns the trimmed question, answer, and sources", async () => {

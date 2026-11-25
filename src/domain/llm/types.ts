@@ -23,6 +23,9 @@ export type Message =
   | { role: "assistant"; content: string; toolCalls?: ToolCall[] }
   | { role: "tool"; name: string; content: string; toolCallId?: string };
 
+// A finished turn of an earlier exchange in a conversation (text only, no tool calls).
+export type ChatTurn = { role: "user" | "assistant"; content: string };
+
 // Input for a completion request
 export interface CompletionInput {
   system?: string;
