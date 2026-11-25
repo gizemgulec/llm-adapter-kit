@@ -67,6 +67,15 @@ Everything in `src/domain/llm/` depends only on the provider interfaces in `type
   - Retrieval ranks docs by cosine similarity (`topN=2`, `minScore = MIN_RELEVANCE_SCORE = 0.75`, measured for `gemini-embedding-001`; re-measure if the model or docs change).
   - The prompt asks the model to cite `[kaynak-id]` and to answer "Bu konuda bilgim yok" when the context is insufficient.
   - `ask()` returns `{ answer, sources }`. The server spreads this into the `/ask` response, and the mobile app renders `sources`.
+- **Conversation history** (stateless server):
+  - The client keeps the conversation and sends it with every question: `{ question, history?: [{ role: "user" | "assistant", content }] }`, oldest first, on both `/ask` and `/ask/stream`.
+  - The server validates it in `server/app.ts`: 400 on a malformed item or on content over `MAX_HISTORY_MESSAGE_LENGTH`. It drops empty turns, keeps the last `MAX_HISTORY_MESSAGES` (10), and starts on a user turn.
+  - `RagPipeline.ask/askStream(question, history)` puts `history` before the current prompt. Only the current question's prompt carries documents.
+  - Retrieval for follow-ups (`findDocuments`): search with the question alone; if nothing is found, search again with the previous user question prepended.
+    - Always prepending the previous question pulled the previous topic's document into unrelated questions; no threshold separated the two cases.
+    - An LLM rewrite of the question was more accurate but added ~13s per follow-up.
+    - Known limit: an unrelated question right after a topic can still show that topic's document as a source, though the model answers "Bu konuda bilgim yok".
+  - The mobile app sends only completed exchanges (a failed answer and its question are left out) and keeps the last 10 messages. "Yeni sohbet" clears the conversation.
   - The `keywords` field on knowledge-base docs is left over from earlier keyword retrieval and is unused now.
 - **Orchestration demos** (not wired into the server):
   - `ComplaintPipeline` chains summarize → urgency.
@@ -79,7 +88,7 @@ Everything in `src/domain/llm/` depends only on the provider interfaces in `type
 
 - ESM with `module: nodenext`: relative imports must use the `.js` extension, even for `.ts` files. `verbatimModuleSyntax` is on, so type-only imports must use `import type`.
 - Code comments are in English. All user-facing strings, LLM prompts, error messages, and log lines are in **Turkish**. Keep new ones in Turkish.
-- `server/app.ts` validates `question` (must be a string, non-empty after trimming, at most `MAX_QUESTION_LENGTH` = 1000 characters). `mobile/App.tsx` duplicates the same limit; keep the two in sync.
+- `server/app.ts` validates `question` (must be a string, non-empty after trimming, at most `MAX_QUESTION_LENGTH` = 1000 characters). `mobile/App.tsx` duplicates `MAX_QUESTION_LENGTH` and `MAX_HISTORY_MESSAGES`; keep them in sync.
 - This is a learning and portfolio project. Keep changes incremental and targeted, not large rewrites.
 - Don't add claims to the README or docs that the code doesn't support (e.g. fine-tuning/LoRA, on-device AI, native bridges, none of which exist).
 - Gemini model names change often. If a model name errors, look up the current name instead of guessing.
