@@ -19,6 +19,11 @@ const BACKEND_URL = "http://192.168.111.4:3000/ask/stream";
 // Keep in sync with server/app.ts.
 const MAX_QUESTION_LENGTH = 1000;
 const MAX_HISTORY_MESSAGES = 10;
+// Give up if the server sends nothing for this long. The server's own limits (10s for embeddings,
+// 30s for the model) end a request sooner, so this mostly catches an unreachable server.
+// It restarts with every event, so a long answer that keeps streaming isn't cut off.
+const RESPONSE_TIMEOUT_MS = 60_000;
+const TIMEOUT_MESSAGE = "Sunucu zamanında cevap vermedi. Bağlantını kontrol edip tekrar dene.";
 
 type Source = {
   id: string;
@@ -115,11 +120,24 @@ export default function App() {
     setInputError("");
     setLoading(true);
 
+    const controller = new AbortController();
+    let timedOut = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const restartTimer = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, RESPONSE_TIMEOUT_MS);
+    };
+    restartTimer();
+
     try {
       const res = await fetch(BACKEND_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question: normalizedQuestion, history }),
+        signal: controller.signal,
       });
 
       if (!res.ok) {
@@ -132,6 +150,7 @@ export default function App() {
 
       let finished = false;
       await readEvents(res.body, (event) => {
+        restartTimer();
         switch (event.type) {
           case "sources":
             updateMessage(assistantId, (message) => ({ ...message, sources: event.sources }));
@@ -152,7 +171,8 @@ export default function App() {
       }
       updateMessage(assistantId, (message) => ({ ...message, status: "done" }));
     } catch (err: unknown) {
-      const errorMessage = err instanceof Error ? err.message : "Bir hata oluştu.";
+      let errorMessage = err instanceof Error ? err.message : "Bir hata oluştu.";
+      if (timedOut) errorMessage = TIMEOUT_MESSAGE;
       // Keep any partial answer visible, followed by the error.
       updateMessage(assistantId, (message) => ({
         ...message,
@@ -160,6 +180,7 @@ export default function App() {
         content: message.content ? `${message.content}\n\n${errorMessage}` : errorMessage,
       }));
     } finally {
+      clearTimeout(timer);
       setLoading(false);
     }
   };

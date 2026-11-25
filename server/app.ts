@@ -3,7 +3,7 @@
 // so the routes can be tested with a fake pipeline.
 import express from "express";
 import cors from "cors";
-import type { RagPipeline } from "../src/domain/llm/RagPipeline.js";
+import { citedSources, type RagPipeline } from "../src/domain/llm/RagPipeline.js";
 import type { ChatTurn } from "../src/domain/llm/types.js";
 import { ProviderUnavailableError } from "../src/domain/llm/errors.js";
 
@@ -105,8 +105,8 @@ export function createApp(rag: AskService) {
 
   // --- Streaming endpoint: same as /ask, but the answer arrives chunk by chunk ---
   // Response is NDJSON (one JSON object per line):
-  //   {"type":"sources","sources":[...]}   once, before the answer
   //   {"type":"delta","text":"..."}        zero or more answer chunks
+  //   {"type":"sources","sources":[...]}   once, after the answer: the documents it cites
   //   {"type":"done"}                      the answer is complete
   //   {"type":"error","error":"..."}       the stream failed after it started
   app.post("/ask/stream", async (req, res) => {
@@ -130,7 +130,6 @@ export function createApp(rag: AskService) {
       res.setHeader("Content-Type", "application/x-ndjson; charset=utf-8");
       res.setHeader("Cache-Control", "no-cache");
       res.flushHeaders();
-      send({ type: "sources", sources });
 
       let fullAnswer = "";
       for await (const text of answer) {
@@ -140,7 +139,11 @@ export function createApp(rag: AskService) {
       }
 
       console.log("[Dönen cevap (stream)]:", fullAnswer.trim());
-      if (!clientClosed) send({ type: "done" });
+      if (!clientClosed) {
+        // Sent last: which documents the answer cites is only known once it's complete.
+        send({ type: "sources", sources: citedSources(fullAnswer, sources) });
+        send({ type: "done" });
+      }
       res.end();
     } catch (err) {
       console.error("[Hata]:", err);

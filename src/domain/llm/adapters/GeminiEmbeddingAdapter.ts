@@ -14,10 +14,11 @@ export class GeminiEmbeddingAdapter implements EmbeddingProvider {
     this.client = new GoogleGenAI({ apiKey });
   }
 
-  async embed(text: string): Promise<number[]> {
+  async embed(text: string, signal?: AbortSignal): Promise<number[]> {
     const result = await this.client.models.embedContent({
       model: this.model,
       contents: text,
+      ...(signal ? { config: { abortSignal: signal } } : {}),
     });
 
     // An empty vector would silently score 0 against every document ("no documents found"),

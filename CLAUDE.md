@@ -52,11 +52,17 @@ Everything in `src/domain/llm/` depends only on the provider interfaces in `type
   - `FallbackProvider` is itself an `LLMProvider`. It tries each wrapped provider in order, wrapping each call in `withRetry`.
   - `withRetry` (`retry.ts`) uses exponential backoff and retries only transient errors: 408, 429, 5xx, and network errors with no `status`. Other HTTP errors (e.g. 400 invalid key) fail immediately and move on to the next provider.
   - When every provider fails, `FallbackProvider` throws `AllProvidersFailedError`. The server maps it to a 503 with a user-facing "try again later" message (an `error` event on `/ask/stream`). Any other error is a 500.
+  - **Timeouts** (`timeout.ts`): `withTimeout(ms, signal => …)` aborts the signal and rejects with `ProviderTimeoutError` (a `ProviderUnavailableError`, so 503), even if the callee ignores the signal.
+    - Adapters must pass `CompletionInput.signal` and the `embed(text, signal)` signal to their HTTP call; Gemini takes it as `abortSignal`.
+    - `FallbackProvider` limits each call to `LLM_TIMEOUT_MS` (30s). For streams, the limit applies to the first chunk and to each gap between chunks, never to the whole answer.
+    - `Retriever` limits each embedding call to `EMBEDDING_TIMEOUT_MS` (10s).
+    - Timeouts are not retried: a hung request rarely recovers right away, and each retry adds the full limit. `FallbackProvider` still tries the next provider.
+    - Both limits are constructor options (`{ timeoutMs }`), which tests use to set limits of a few milliseconds.
   - The server's chain is `FallbackProvider([Gemini])`. Don't add `MockAdapter` to it: as a fallback, its placeholder text (which echoes the whole RAG prompt) would reach users as if it were a real answer. A second real provider goes in this list.
 - **Streaming**: every provider implements `stream(input): AsyncIterable<string>` (text only, no tool calls).
   - `FallbackProvider.stream` retries and falls back only until the first chunk arrives; a mid-stream error goes to the caller, since switching providers would duplicate text. If the caller stops early, it closes the inner provider stream, so generation stops when the client disconnects.
   - `RagPipeline.askStream` runs retrieval first, then returns `{ sources, answer }` with `answer` as the stream.
-  - `POST /ask/stream` responds with NDJSON, one event per line: `sources`, then `delta` events, then `done`, or `error` if it fails after starting. Validation errors are a normal 400 JSON response. `/ask` is unchanged.
+  - `POST /ask/stream` responds with NDJSON, one event per line: `delta` events, then `sources` (the cited ones, which are only known once the answer is complete), then `done`, or `error` if it fails after starting. Validation errors are a normal 400 JSON response.
   - The mobile app reads the stream with `fetch` from `expo/fetch`, because React Native's built-in `fetch` can't stream response bodies.
 - **RAG** (`RagPipeline` → `Retriever` in `knowledgeBase.ts` → `EmbeddingProvider`):
   - The knowledge base is an in-memory array of insurance docs.
@@ -67,14 +73,18 @@ Everything in `src/domain/llm/` depends only on the provider interfaces in `type
   - Retrieval ranks docs by cosine similarity (`topN=2`, `minScore = MIN_RELEVANCE_SCORE = 0.75`, measured for `gemini-embedding-001`; re-measure if the model or docs change).
   - The prompt asks the model to cite `[kaynak-id]` and to answer "Bu konuda bilgim yok" when the context is insufficient.
   - `ask()` returns `{ answer, sources }`. The server spreads this into the `/ask` response, and the mobile app renders `sources`.
+  - **Only cited sources are shown.** `citedSources(answer, docs)` in `RagPipeline.ts` keeps the retrieved docs whose id appears in the answer as a whole token (`[kasko-cam]`, `[Kaynak: kasko-cam]`, `[a, b]`).
+    - `ask()` applies it. `askStream()` returns all retrieved docs, and the server applies it once the stream ends.
+    - An answer that cites nothing ("Bu konuda bilgim yok") shows no sources. Showing none is better than showing a wrong one.
+    - In testing, the model cited its document in every answer where a document was retrieved.
 - **Conversation history** (stateless server):
   - The client keeps the conversation and sends it with every question: `{ question, history?: [{ role: "user" | "assistant", content }] }`, oldest first, on both `/ask` and `/ask/stream`.
   - The server validates it in `server/app.ts`: 400 on a malformed item or on content over `MAX_HISTORY_MESSAGE_LENGTH`. It drops empty turns, keeps the last `MAX_HISTORY_MESSAGES` (10), and starts on a user turn.
   - `RagPipeline.ask/askStream(question, history)` puts `history` before the current prompt. Only the current question's prompt carries documents.
-  - Retrieval for follow-ups (`findDocuments`): search with the question alone; if nothing is found, search again with the previous user question prepended.
-    - Always prepending the previous question pulled the previous topic's document into unrelated questions; no threshold separated the two cases.
+  - Retrieval for follow-ups (`findDocuments`): search with the question alone. If nothing is found, search with each of the last 3 user questions prepended (in parallel), and use the newest one that finds documents.
+    - It looks further back than one question because of cases like cam → evcil hayvan (no docs) → "Muafiyet var mı?", where the topic is two questions back.
+    - Always prepending the previous question pulled the previous topic's document into unrelated questions; no threshold separated the two cases. Such a document now reaches the model but isn't shown unless cited.
     - An LLM rewrite of the question was more accurate but added ~13s per follow-up.
-    - Known limit: an unrelated question right after a topic can still show that topic's document as a source, though the model answers "Bu konuda bilgim yok".
   - The mobile app sends only completed exchanges (a failed answer and its question are left out) and keeps the last 10 messages. "Yeni sohbet" clears the conversation.
   - The `keywords` field on knowledge-base docs is left over from earlier keyword retrieval and is unused now.
 - **Orchestration demos** (not wired into the server):

@@ -46,7 +46,8 @@ const fakeRag: AskService = {
     if (question === "bug") throw new Error("bug");
     if (question === "unavailable mid-stream") return { sources: [source], answer: failAfterFirst(unavailable()) };
     if (question === "bug mid-stream") return { sources: [source], answer: failAfterFirst(new Error("bug")) };
-    return { sources: [source], answer: chunks("Ev", "et") };
+    if (question === "uncited") return { sources: [source], answer: chunks("Bu konuda bilgim yok.") };
+    return { sources: [source], answer: chunks("Evet ", "[kasko-cam]") };
   },
 };
 
@@ -154,16 +155,21 @@ describe("server", () => {
   });
 
   describe("POST /ask/stream", () => {
-    it("streams NDJSON: sources, then deltas, then done", async () => {
+    it("streams NDJSON: deltas, then the cited sources, then done", async () => {
       const res = await post("/ask/stream", { question: "Cam kırıldı?" });
       assert.equal(res.status, 200);
       assert.match(res.headers.get("content-type") ?? "", /application\/x-ndjson/);
       assert.deepEqual(await events(res), [
+        { type: "delta", text: "Evet " },
+        { type: "delta", text: "[kasko-cam]" },
         { type: "sources", sources: [source] },
-        { type: "delta", text: "Ev" },
-        { type: "delta", text: "et" },
         { type: "done" },
       ]);
+    });
+
+    it("sends no sources when the answer cites none", async () => {
+      const res = await post("/ask/stream", { question: "uncited" });
+      assert.deepEqual((await events(res)).slice(-2), [{ type: "sources", sources: [] }, { type: "done" }]);
     });
 
     // Regression: this used to return 500 (fixed in #19).
@@ -180,7 +186,7 @@ describe("server", () => {
 
     it("ends with an error event when the provider fails mid-stream", async () => {
       const res = await post("/ask/stream", { question: "unavailable mid-stream" });
-      assert.deepEqual((await events(res)).slice(1), [
+      assert.deepEqual(await events(res), [
         { type: "delta", text: "Ev" },
         { type: "error", error: UNAVAILABLE_MESSAGE },
       ]);
