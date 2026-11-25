@@ -3,6 +3,10 @@ import type { EmbeddingProvider } from "./types.js";
 import { cosineSimilarity } from "./embeddings.js";
 import { ProviderUnavailableError, describeError } from "./errors.js";
 import { withRetry } from "./retry.js";
+import { withTimeout } from "./timeout.js";
+
+// Time limit for one embedding call. Embeddings are much faster than generating an answer.
+export const EMBEDDING_TIMEOUT_MS = 10_000;
 
 // A mock knowledge base. In a real application, this would contain the insurer's policy text,
 // documents, and so on. For now, we are starting with a few short "documents."
@@ -51,7 +55,14 @@ export class Retriever {
   // means concurrent first requests share one computation instead of each embedding every document.
   private docVectors: Promise<DocVector[]> | null = null;
 
-  constructor(private readonly embedder: EmbeddingProvider) {}
+  private readonly timeoutMs: number;
+
+  constructor(
+    private readonly embedder: EmbeddingProvider,
+    options: { timeoutMs?: number } = {}
+  ) {
+    this.timeoutMs = options.timeoutMs ?? EMBEDDING_TIMEOUT_MS;
+  }
 
   async retrieve(
     question: string,
@@ -95,7 +106,9 @@ export class Retriever {
   // its vectors wouldn't be comparable with the cached document vectors.
   private async embed(text: string): Promise<number[]> {
     try {
-      return await withRetry(() => this.embedder.embed(text));
+      return await withRetry(() =>
+        withTimeout(this.timeoutMs, (signal) => this.embedder.embed(text, signal))
+      );
     } catch (err) {
       throw new ProviderUnavailableError(
         `Embedding servisi (${this.embedder.name}) başarısız oldu: ${describeError(err)}`,

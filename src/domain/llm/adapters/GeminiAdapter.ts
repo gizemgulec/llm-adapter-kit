@@ -58,6 +58,7 @@ export class GeminiAdapter implements LLMProvider {
       ...(input.system ? { systemInstruction: input.system } : {}),
       ...(input.maxTokens !== undefined ? { maxOutputTokens: input.maxTokens } : {}),
       ...(input.temperature !== undefined ? { temperature: input.temperature } : {}),
+      ...(input.signal ? { abortSignal: input.signal } : {}),
       ...(input.tools?.length
         ? {
             tools: [

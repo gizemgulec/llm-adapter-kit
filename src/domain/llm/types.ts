@@ -33,6 +33,8 @@ export interface CompletionInput {
   tools?: ToolDefinition[];
   maxTokens?: number;
   temperature?: number;
+  // Cancels the request (e.g. on timeout). Adapters should pass it to their HTTP call.
+  signal?: AbortSignal;
 }
 
 // Output of a completion request
@@ -58,5 +60,5 @@ export interface LLMProvider {
 // both the documents and the questions searched against them.
 export interface EmbeddingProvider {
   readonly name: string;
-  embed(text: string): Promise<number[]>;
+  embed(text: string, signal?: AbortSignal): Promise<number[]>;
 }

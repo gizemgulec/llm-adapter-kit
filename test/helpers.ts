@@ -18,8 +18,15 @@ export function httpError(status: number, message = `HTTP ${status}`): Error {
 export function scriptedProvider(
   name: string,
   script: (CompletionResult | Error)[]
-): LLMProvider & { inputs: CompletionInput[] } {
+): LLMProvider & { inputs: CompletionInput[]; signals: (AbortSignal | undefined)[] } {
   const inputs: CompletionInput[] = [];
+  const signals: (AbortSignal | undefined)[] = [];
+  // Snapshot the input (the caller may mutate its arrays later); keep the signal as-is,
+  // since structuredClone would turn it into a plain object.
+  const record = ({ signal, ...rest }: CompletionInput) => {
+    inputs.push(structuredClone(rest));
+    signals.push(signal);
+  };
   let call = 0;
   const next = () => {
     const entry = script[Math.min(call++, script.length - 1)];
@@ -30,13 +37,35 @@ export function scriptedProvider(
   return {
     name,
     inputs,
+    signals,
     async complete(input) {
-      inputs.push(structuredClone(input));
+      record(input);
       return next();
     },
     async *stream(input) {
-      inputs.push(structuredClone(input));
+      record(input);
       yield next().text;
+    },
+  };
+}
+
+// A provider that never answers, like a hung request. `aborted` tells whether the caller
+// cancelled it through the signal.
+export function hangingProvider(name: string): LLMProvider & { aborted: () => boolean } {
+  let aborted = false;
+  const hang = (signal?: AbortSignal) =>
+    new Promise<never>((_, reject) => {
+      signal?.addEventListener("abort", () => {
+        aborted = true;
+        reject(signal.reason);
+      });
+    });
+  return {
+    name,
+    aborted: () => aborted,
+    complete: (input) => hang(input.signal),
+    async *stream(input) {
+      await hang(input.signal);
     },
   };
 }

@@ -1,3 +1,5 @@
+import { ProviderTimeoutError } from "./errors.js";
+
 // Retries an operation a few times, doubling the wait after each attempt (exponential backoff).
 // Only transient errors are retried; permanent ones (e.g. 400 invalid API key) fail immediately.
 export async function withRetry<T>(
@@ -30,7 +32,11 @@ export async function withRetry<T>(
 
 // Transient: rate limits (429), timeouts (408), server errors (5xx), and network errors
 // that carry no HTTP status. Any other HTTP status is a problem retrying won't fix.
+// Our own time limit (ProviderTimeoutError) isn't retried either: a request that hung rarely
+// succeeds when repeated right away, and each retry would add the full time limit to the wait.
+// FallbackProvider still moves on to the next provider.
 function isRetryable(err: unknown): boolean {
+  if (err instanceof ProviderTimeoutError) return false;
   const status = (err as { status?: unknown } | null)?.status;
   if (typeof status !== "number") return true;
   return status === 408 || status === 429 || status >= 500;
